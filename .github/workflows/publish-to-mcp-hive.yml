@@ -1,0 +1,99 @@
+name: Publish to MCP Hive
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      force_publish:
+        description: "Force publish even if not a release"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      MCP_SERVER_URL: https://mcp-hive.ti.trilogy.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Verify required secrets
+        run: |
+          [ -n "${{ secrets.MCP_HIVE_API_KEY }}" ] || { echo "❌ MCP_HIVE_API_KEY missing"; exit 1; }
+          [ -n "${{ secrets.MCP_HIVE_ID }}" ] || { echo "❌ MCP_HIVE_ID missing"; exit 1; }
+          [ -n "${{ secrets.WRIKE_ACCESS_TOKEN }}" ] || { echo "❌ WRIKE_ACCESS_TOKEN missing"; exit 1; }
+          [ -n "${{ secrets.OPENAI_API_KEY }}" ] || { echo "❌ OPENAI_API_KEY missing"; exit 1; }
+          echo "✅ All required secrets are present"
+
+      - name: Get version from pyproject.toml
+        id: get_version
+        run: |
+          python -c "import tomllib,sys;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])" | tee version.txt
+          echo "version=$(cat version.txt)" >> $GITHUB_OUTPUT
+          echo "📋 Found version: $(cat version.txt)"
+
+      - name: Create .env file from GitHub secrets
+        env:
+          WRIKE_ACCESS_TOKEN: ${{ secrets.WRIKE_ACCESS_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          touch .env
+          echo "WRIKE_ACCESS_TOKEN=${WRIKE_ACCESS_TOKEN}" >> .env
+          echo "OPENAI_API_KEY=${OPENAI_API_KEY}" >> .env
+          echo "✅ Created .env file with secrets"
+
+      - name: Create custom payload file
+        run: |
+          REPO_URL="${{ github.server_url }}/${{ github.repository }}"
+          cat > custom_payload.json << JSON
+          {
+            "hiveName": "Alpha Analysis Downstream Processing MCP Server",
+            "hiveDescription": "Model Context Protocol server for automating Alpha location analysis downstream processing, including Wrike Site Record updates.",
+            "version": "${{ steps.get_version.outputs.version }}",
+            "tags": ["wrike", "alpha-location-analysis"],
+            "homePage": "${REPO_URL}",
+            "env": []
+          }
+          JSON
+          echo "📋 Custom payload:"; cat custom_payload.json
+
+      - name: Create ZIP for MCP Hive
+        run: |
+          ZIP_PATH="../alpha-analysis-downstream-processing-mcp.zip"
+          zip -r "$ZIP_PATH" . \
+            -x "*.git*" \
+            "*/__pycache__/*" \
+            "*.DS_Store" \
+            "build/*" \
+            "*.egg-info/*" \
+            ".venv/*" \
+            ".ruff_cache/*"
+          echo "📦 Created zip: $ZIP_PATH"; ls -la "$ZIP_PATH"
+
+      - name: Publish to MCP Hive
+        env:
+          API_KEY: ${{ secrets.MCP_HIVE_API_KEY }}
+          HIVE_ID: ${{ secrets.MCP_HIVE_ID }}
+        run: |
+          ZIP_PATH="../alpha-analysis-downstream-processing-mcp.zip"
+          CONFIG_JSON=$(jq -c '.' custom_payload.json)
+          curl -sS -X PUT "$MCP_SERVER_URL/api/hives/$HIVE_ID/from-mcp-server" \
+            -H "x-api-key: $API_KEY" \
+            -F "zipFile=@${ZIP_PATH};type=application/zip" \
+            --form-string "data=${CONFIG_JSON}"
+          echo "\n✅ Publish request sent"
+
+      - name: Done
+        run: |
+          echo "🎉 Successfully initiated publish to MCP Hive"
