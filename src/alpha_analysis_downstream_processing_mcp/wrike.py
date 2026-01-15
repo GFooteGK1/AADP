@@ -51,6 +51,9 @@ WRIKE_CUSTOM_FIELDS = {
     "p1_accountable": "IEAGN6I6JUAJK2MQ",  # P1 Accountable (Contacts)
 }
 
+# Reverse mapping: ID -> name
+WRIKE_CUSTOM_FIELD_NAMES = {v: k for k, v in WRIKE_CUSTOM_FIELDS.items()}
+
 
 @dataclass(frozen=True)
 class WrikeConfig:
@@ -95,6 +98,42 @@ def _raise_for_wrike_error(resp: requests.Response) -> None:
     except Exception:
         body = {"raw": resp.text[:2000]}
     raise WrikeError(f"Wrike API error {resp.status_code}: {body}")
+
+
+def enrich_custom_fields_with_names(record: dict[str, Any]) -> dict[str, Any]:
+    """
+    Enrich custom fields in a Wrike record with human-readable names.
+
+    Args:
+        record: Wrike site record
+
+    Returns:
+        Record with enriched customFields (adds "name" key to each field)
+    """
+    custom_fields = record.get("customFields", [])
+    if not isinstance(custom_fields, list):
+        return record
+
+    enriched_fields = []
+    for field in custom_fields:
+        if not isinstance(field, dict):
+            enriched_fields.append(field)
+            continue
+
+        field_id = field.get("id")
+        field_name = WRIKE_CUSTOM_FIELD_NAMES.get(field_id, "unknown")
+
+        # Create enriched field with name
+        enriched_field = {
+            "name": field_name,
+            "id": field_id,
+            "value": field.get("value"),
+        }
+        enriched_fields.append(enriched_field)
+
+    # Return modified record
+    enriched_record = {**record, "customFields": enriched_fields}
+    return enriched_record
 
 
 def extract_address_from_record(record: dict[str, Any]) -> str | None:

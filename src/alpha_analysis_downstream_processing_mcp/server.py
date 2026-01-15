@@ -13,6 +13,7 @@ from .email_sender import LOIEmailData, send_loi_email
 from .google_client import GoogleClient
 from .utils import download_pdf_from_url, extract_sir_url_from_description
 from .wrike import (
+    enrich_custom_fields_with_names,
     extract_address_from_record,
     extract_school_type_from_record,
     find_site_record_by_address,
@@ -167,6 +168,89 @@ async def update_wrike_site_record(
     }
 
     logger.info("update_wrike_site_record result: %s", result)
+    return result
+
+
+@mcp.tool()
+async def get_wrike_site_record(
+    wrike_record_id: str | None = None,
+    wrike_permalink: str | None = None,
+) -> dict[str, Any]:
+    """Fetch a Wrike Site Record by ID or permalink.
+
+    This tool:
+    - Resolves Wrike record (accepts either ID or permalink)
+    - Returns full record data including custom fields
+
+    Args:
+        wrike_record_id: Wrike Site Record ID (optional if permalink provided)
+        wrike_permalink: Wrike permalink URL (optional if record_id provided)
+
+    Returns:
+        Dict with site record data
+    """
+    logger.info("Tool called: get_wrike_site_record")
+    logger.info(
+        "get_wrike_site_record params: wrike_record_id=%s, wrike_permalink=%s",
+        wrike_record_id,
+        wrike_permalink,
+    )
+
+    # Resolve record ID if permalink is provided
+    if not wrike_record_id and not wrike_permalink:
+        return {
+            "status": "error",
+            "error": "Missing parameter",
+            "message": "Either wrike_record_id or wrike_permalink must be provided",
+        }
+
+    record_id = wrike_record_id
+
+    if wrike_permalink:
+        logger.info("Resolving permalink to record ID...")
+        try:
+            record_id = resolve_permalink_to_id(permalink=wrike_permalink)
+            logger.info("Resolved permalink to record ID: %s", record_id)
+        except Exception as e:
+            logger.error("Failed to resolve permalink: %s", e)
+            return {
+                "status": "error",
+                "error": "Failed to resolve permalink",
+                "message": str(e),
+            }
+
+    if not record_id:
+        return {
+            "status": "error",
+            "error": "Invalid record ID",
+            "message": "Could not determine record ID",
+        }
+
+    # Fetch the Site Record
+    logger.info("Fetching Wrike Site Record: %s", record_id)
+    try:
+        site_record = get_site_record_by_id(record_id=record_id)
+        logger.info("Successfully fetched Site Record: %s", site_record.get("title"))
+
+        # Enrich custom fields with readable names
+        enriched_record = enrich_custom_fields_with_names(site_record)
+        logger.info("Enriched custom fields with readable names")
+
+        result = {
+            "status": "success",
+            "record": enriched_record,
+            "message": f"Successfully fetched Site Record: {site_record.get('title')}",
+        }
+
+    except Exception as e:
+        logger.error("Failed to fetch Wrike Site Record: %s", e)
+        result = {
+            "status": "error",
+            "error": "Failed to fetch Wrike Site Record",
+            "message": str(e),
+        }
+
+    logger.info("get_wrike_site_record result status: %s", result.get("status"))
     return result
 
 
