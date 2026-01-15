@@ -186,7 +186,11 @@ class GoogleClient:
         try:
             folder = (
                 self.drive_service.files()
-                .create(body=metadata, fields="id,name,parents,webViewLink")
+                .create(
+                    body=metadata,
+                    fields="id,name,parents,webViewLink",
+                    supportsAllDrives=True,
+                )
                 .execute()
             )
             logger.info(
@@ -243,6 +247,7 @@ class GoogleClient:
                     body=metadata,
                     media_body=media,
                     fields="id,name,webViewLink,mimeType",
+                    supportsAllDrives=True,
                 )
                 .execute()
             )

@@ -121,7 +121,8 @@ def enrich_custom_fields_with_names(record: dict[str, Any]) -> dict[str, Any]:
             continue
 
         field_id = field.get("id")
-        field_name = WRIKE_CUSTOM_FIELD_NAMES.get(field_id, "unknown")
+        # If no mapping found, use the ID itself as the name
+        field_name = WRIKE_CUSTOM_FIELD_NAMES.get(field_id, field_id)
 
         # Create enriched field with name
         enriched_field = {
