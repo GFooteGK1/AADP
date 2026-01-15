@@ -34,6 +34,11 @@ jobs:
           [ -n "${{ secrets.MCP_HIVE_ID }}" ] || { echo "❌ MCP_HIVE_ID missing"; exit 1; }
           [ -n "${{ secrets.WRIKE_ACCESS_TOKEN }}" ] || { echo "❌ WRIKE_ACCESS_TOKEN missing"; exit 1; }
           [ -n "${{ secrets.OPENAI_API_KEY }}" ] || { echo "❌ OPENAI_API_KEY missing"; exit 1; }
+          [ -n "${{ secrets.AWS_ACCESS_KEY_ID }}" ] || { echo "❌ AWS_ACCESS_KEY_ID missing"; exit 1; }
+          [ -n "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ] || { echo "❌ AWS_SECRET_ACCESS_KEY missing"; exit 1; }
+          [ -n "${{ secrets.SES_SENDER_EMAIL }}" ] || { echo "❌ SES_SENDER_EMAIL missing"; exit 1; }
+          [ -n "${{ secrets.OAUTH_CLIENT_ID }}" ] || { echo "❌ OAUTH_CLIENT_ID missing"; exit 1; }
+          [ -n "${{ secrets.OAUTH_CLIENT_SECRET }}" ] || { echo "❌ OAUTH_CLIENT_SECRET missing"; exit 1; }
           echo "✅ All required secrets are present"
 
       - name: Get version from pyproject.toml
@@ -47,10 +52,16 @@ jobs:
         env:
           WRIKE_ACCESS_TOKEN: ${{ secrets.WRIKE_ACCESS_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          SES_SENDER_EMAIL: ${{ secrets.SES_SENDER_EMAIL }}
         run: |
           touch .env
           echo "WRIKE_ACCESS_TOKEN=${WRIKE_ACCESS_TOKEN}" >> .env
           echo "OPENAI_API_KEY=${OPENAI_API_KEY}" >> .env
+          echo "AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}" >> .env
+          echo "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}" >> .env
+          echo "SES_SENDER_EMAIL=${SES_SENDER_EMAIL}" >> .env
           echo "✅ Created .env file with secrets"
 
       - name: Create custom payload file
@@ -59,11 +70,31 @@ jobs:
           cat > custom_payload.json << JSON
           {
             "hiveName": "Alpha Analysis Downstream Processing MCP Server",
-            "hiveDescription": "Model Context Protocol server for automating Alpha location analysis downstream processing, including Wrike Site Record updates.",
+            "hiveDescription": "Model Context Protocol server for automating Alpha location analysis downstream processing, including Wrike Site Record updates, Gmail integration, and Google Drive file management.",
             "version": "${{ steps.get_version.outputs.version }}",
             "tags": ["wrike", "alpha-location-analysis"],
             "homePage": "${REPO_URL}",
-            "env": []
+            "env": [],
+            "securitySchemes": [
+              {
+                "id": "oauth2",
+                "type": "oauth2",
+                "flows": {
+                  "authorizationCode": {
+                    "authorizationUrl": "https://accounts.google.com/o/oauth2/v2/auth",
+                    "tokenUrl": "https://oauth2.googleapis.com/token",
+                    "scopes": {
+                      "https://www.googleapis.com/auth/gmail.readonly": "Read emails and download attachments",
+                      "https://www.googleapis.com/auth/drive": "Create folders and upload files to Google Drive"
+                    }
+                  }
+                }
+              }
+            ],
+            "oAuthClient": {
+              "clientId": "${{ secrets.OAUTH_CLIENT_ID }}",
+              "clientSecret": "${{ secrets.OAUTH_CLIENT_SECRET }}"
+            }
           }
           JSON
           echo "📋 Custom payload:"; cat custom_payload.json

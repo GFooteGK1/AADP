@@ -97,6 +97,76 @@ def _raise_for_wrike_error(resp: requests.Response) -> None:
     raise WrikeError(f"Wrike API error {resp.status_code}: {body}")
 
 
+def extract_address_from_record(record: dict[str, Any]) -> str | None:
+    """
+    Extract address from Wrike Site Record.
+
+    Args:
+        record: Wrike site record
+
+    Returns:
+        Address string or None if not found
+    """
+    custom_fields = record.get("customFields", [])
+    if not isinstance(custom_fields, list):
+        return None
+
+    address_field_id = WRIKE_CUSTOM_FIELDS["address"]
+
+    for field in custom_fields:
+        if not isinstance(field, dict):
+            continue
+
+        if field.get("id") == address_field_id:
+            value = field.get("value", "")
+            if isinstance(value, str):
+                # Strip HTML tags from address field
+                # Wrike stores addresses as: <a ...>ADDRESS</a>
+                address = re.sub(r"<[^>]+>", "", value).strip()
+                return address if address else None
+
+    return None
+
+
+def extract_school_type_from_record(record: dict[str, Any]) -> str | None:
+    """
+    Extract and convert school_type from Wrike Site Record.
+
+    Wrike format: "Growth 250", "Microschool 25", "Flagship 1000"
+    Internal format: "250", "micro", "1000"
+
+    Args:
+        record: Wrike site record
+
+    Returns:
+        School type in internal format or None if not found
+    """
+    custom_fields = record.get("customFields", [])
+    if not isinstance(custom_fields, list):
+        return None
+
+    school_type_field_id = WRIKE_CUSTOM_FIELDS["school_type"]
+
+    for field in custom_fields:
+        if not isinstance(field, dict):
+            continue
+
+        if field.get("id") == school_type_field_id:
+            value = field.get("value", "")
+            if not isinstance(value, str):
+                continue
+
+            # Map Wrike format to internal format
+            if "Microschool 25" in value or "Micro" in value:
+                return "micro"
+            elif "Growth 250" in value or value == "250":
+                return "250"
+            elif "Flagship 1000" in value or value == "1000":
+                return "1000"
+
+    return None
+
+
 def _get_all_folder_ids(*, access_token: str) -> list[str]:
     """
     Get all folder IDs from the Wrike space.
@@ -492,6 +562,51 @@ def search_site_records_by_address(
     return matching_records
 
 
+def resolve_permalink_to_id(*, permalink: str, cfg: WrikeConfig | None = None) -> str:
+    """
+    Resolve a Wrike permalink to a folder/record ID.
+
+    Args:
+        permalink: Wrike permalink (e.g., "https://www.wrike.com/open.htm?id=4348902419")
+        cfg: Wrike config (loads from env if not provided)
+
+    Returns:
+        Wrike folder/record ID
+
+    Raises:
+        WrikeError: If permalink cannot be resolved
+    """
+    if cfg is None:
+        cfg = load_wrike_config()
+
+    url = f"{WRIKE_API_BASE_URL}/folders"
+
+    logger.info("Resolving permalink to record ID: %s", permalink)
+
+    resp = requests.get(
+        url,
+        headers=_wrike_headers(cfg.access_token),
+        params={"permalink": permalink},
+        timeout=WRIKE_TIMEOUT_SECONDS,
+    )
+    _raise_for_wrike_error(resp)
+
+    payload: dict[str, Any] = resp.json()
+    data = payload.get("data", [])
+
+    if not data:
+        raise WrikeError(f"Could not resolve permalink: {permalink}")
+
+    record = data[0]
+    record_id = record.get("id")
+
+    if not isinstance(record_id, str):
+        raise WrikeError(f"Invalid record ID from permalink: {permalink}")
+
+    logger.info("Resolved permalink to record ID: %s", record_id)
+    return record_id
+
+
 def get_site_record_by_id(
     *, record_id: str, cfg: WrikeConfig | None = None
 ) -> dict[str, Any]:
@@ -613,6 +728,9 @@ def update_site_record_with_location_data(
     """
     Update a Site Record with location data from parsed email.
 
+    This function always updates the overall_site_stage to "2. Evaluating Potential Sites (LOI)"
+    along with the location data.
+
     Args:
         record_id: Wrike folder/project ID
         square_footage: Square footage of the space
@@ -632,6 +750,15 @@ def update_site_record_with_location_data(
 
     # Build custom fields list
     fields: list[dict[str, Any]] = []
+
+    # Always update overall_site_stage to "2. Evaluating Potential Sites (LOI)"
+    fields.append(
+        {
+            "id": WRIKE_CUSTOM_FIELDS["overall_site_stage"],
+            "value": "2. Evaluating Potential Sites (LOI)",
+        }
+    )
+    logger.info("Adding overall_site_stage update to custom fields")
 
     # Square footage (numeric field)
     if square_footage is not None:

@@ -8,10 +8,16 @@ from typing import Any
 from dotenv import load_dotenv
 from mcp.server import FastMCP
 
+from .config import get_settings
+from .email_sender import LOIEmailData, send_loi_email
+from .google_client import GoogleClient
+from .utils import download_pdf_from_url, extract_sir_url_from_description
 from .wrike import (
-    WRIKE_CUSTOM_FIELDS,
+    extract_address_from_record,
+    extract_school_type_from_record,
     find_site_record_by_address,
-    update_site_record,
+    get_site_record_by_id,
+    resolve_permalink_to_id,
     update_site_record_with_location_data,
 )
 
@@ -33,7 +39,7 @@ mcp = FastMCP("alpha-analysis-downstream-processing-mcp")
 
 
 @mcp.tool()
-async def process_location(
+async def update_wrike_site_record(
     street_address: str,
     city: str,
     state: str,
@@ -46,12 +52,12 @@ async def process_location(
     move_in_ready: str,
     current_space_usage: str,
 ) -> dict[str, Any]:
-    """Process a new location from parsed email data.
+    """Update a Wrike Site Record with location data from parsed email.
 
-    This tool processes location information extracted from emails and will:
-    - Update Wrike records
-    - Send email notifications to CDS
-    - Create folders/documents
+    This tool:
+    - Finds matching Site Record with stage "1. Looking for Sites"
+    - Updates overall_site_stage to "2. Evaluating Potential Sites (LOI)"
+    - Updates location data (square footage, contact info, property details)
 
     Args:
         street_address: Street address only (e.g., "123 Main Street")
@@ -67,11 +73,11 @@ async def process_location(
         current_space_usage: What the space is currently used for
 
     Returns:
-        Dict containing operation results and status
+        Dict containing matched record info and update status
     """
-    logger.info("Tool called: process_location")
+    logger.info("Tool called: update_wrike_site_record")
     logger.info(
-        "process_location params: street_address=%s, city=%s, state=%s, zip_code=%s, "
+        "update_wrike_site_record params: street_address=%s, city=%s, state=%s, zip_code=%s, "
         "contact_name=%s, contact_email=%s, contact_phone=%s, square_footage=%s, "
         "complete_building=%s, move_in_ready=%s, current_space_usage=%s",
         street_address,
@@ -110,6 +116,7 @@ async def process_location(
     record_id = matched_record.get("id")
     record_title = matched_record.get("title")
     record_permalink = matched_record.get("permalink")
+    record_description = matched_record.get("description", "")
 
     if not record_id or not isinstance(record_id, str):
         logger.error("Invalid record_id from matched record: %s", record_id)
@@ -126,30 +133,10 @@ async def process_location(
         record_permalink,
     )
 
-    # Step 3: Update the overall_site_stage from "1. Looking for Sites" to "2. Evaluating Potential Sites (LOI)"
-    logger.info(
-        "Updating overall_site_stage to '2. Evaluating Potential Sites (LOI)'..."
-    )
-    try:
-        update_site_record(
-            record_id=record_id,
-            custom_fields=[
-                {
-                    "id": WRIKE_CUSTOM_FIELDS["overall_site_stage"],
-                    "value": "2. Evaluating Potential Sites (LOI)",
-                }
-            ],
-        )
-        logger.info(
-            "Successfully updated site stage to '2. Evaluating Potential Sites (LOI)'"
-        )
-        stage_updated = True
-    except Exception as e:
-        logger.error("Failed to update site stage: %s", e)
-        stage_updated = False
+    # Step 3: Update Site Record (stage + location data in one API call)
+    logger.info("Updating Site Record with stage and location data...")
+    update_successful = False
 
-    # Step 4: Update the Site Record with location data (replace "Pending" section)
-    logger.info("Updating Site Record with location data...")
     try:
         update_site_record_with_location_data(
             record_id=record_id,
@@ -161,13 +148,13 @@ async def process_location(
             contact_email=contact_email,
             contact_phone=contact_phone,
         )
-        logger.info("Successfully updated Site Record with location data")
-        location_data_updated = True
+        logger.info("Successfully updated Site Record (stage + location data)")
+        update_successful = True
     except Exception as e:
-        logger.error("Failed to update location data: %s", e)
-        location_data_updated = False
+        logger.error("Failed to update Site Record: %s", e)
+        update_successful = False
 
-    # Step 5: Return final result
+    # Step 4: Return result
     result = {
         "status": "success",
         "matched_record": {
@@ -175,39 +162,290 @@ async def process_location(
             "title": record_title,
             "permalink": record_permalink,
         },
-        "stage_update": {
-            "updated": stage_updated,
-            "new_stage": (
-                "2. Evaluating Potential Sites (LOI)" if stage_updated else None
-            ),
-        },
-        "location_data_update": {
-            "updated": location_data_updated,
-        },
-        "input_data": {
-            "address": {
-                "street": street_address,
-                "city": city,
-                "state": state,
-                "zip": zip_code,
-                "full": full_address,
-            },
-            "contact": {
-                "name": contact_name,
-                "email": contact_email,
-                "phone": contact_phone,
-            },
-            "details": {
-                "square_footage": square_footage,
-                "complete_building": complete_building,
-                "move_in_ready": move_in_ready,
-                "current_usage": current_space_usage,
-            },
-        },
-        "message": f"Successfully processed location at {full_address}. Stage: {'updated' if stage_updated else 'failed'}. Location data: {'updated' if location_data_updated else 'failed'}.",
+        "update_successful": update_successful,
+        "message": f"{'Successfully' if update_successful else 'Failed to'} updated Wrike Site Record for {full_address} (stage + location data).",
     }
 
-    logger.info("process_location result: %s", result)
+    logger.info("update_wrike_site_record result: %s", result)
+    return result
+
+
+@mcp.tool()
+async def send_loi_notification(
+    wrike_record_id: str | None = None,
+    wrike_permalink: str | None = None,
+) -> dict[str, Any]:
+    """Send LOI notification email with SIR report attached.
+
+    This tool:
+    - Resolves Wrike record (accepts either ID or permalink)
+    - Extracts SIR report URL from description
+    - Downloads SIR PDF
+    - Extracts school type and address
+    - Sends email to CDS with SIR attached
+
+    Args:
+        wrike_record_id: Wrike Site Record ID (optional if permalink provided)
+        wrike_permalink: Wrike permalink URL (optional if record_id provided)
+
+    Returns:
+        Dict with email sending status
+    """
+    logger.info("Tool called: send_loi_notification")
+    logger.info(
+        "send_loi_notification params: wrike_record_id=%s, wrike_permalink=%s",
+        wrike_record_id,
+        wrike_permalink,
+    )
+
+    # Resolve record ID if permalink is provided
+    if not wrike_record_id and not wrike_permalink:
+        return {
+            "status": "error",
+            "error": "Missing parameter",
+            "message": "Either wrike_record_id or wrike_permalink must be provided",
+        }
+
+    record_id = wrike_record_id
+
+    if wrike_permalink:
+        logger.info("Resolving permalink to record ID...")
+        try:
+            record_id = resolve_permalink_to_id(permalink=wrike_permalink)
+            logger.info("Resolved permalink to record ID: %s", record_id)
+        except Exception as e:
+            logger.error("Failed to resolve permalink: %s", e)
+            return {
+                "status": "error",
+                "error": "Failed to resolve permalink",
+                "message": str(e),
+            }
+
+    if not record_id:
+        return {
+            "status": "error",
+            "error": "Invalid record ID",
+            "message": "Could not determine record ID",
+        }
+
+    # Step 1: Get Wrike record
+    logger.info("Fetching Wrike Site Record: %s", record_id)
+    try:
+        site_record = get_site_record_by_id(record_id=record_id)
+        record_title = site_record.get("title", "")
+        record_description = site_record.get("description", "")
+        logger.info("Fetched Site Record: %s", record_title)
+    except Exception as e:
+        logger.error("Failed to fetch Wrike Site Record: %s", e)
+        return {
+            "status": "error",
+            "error": "Failed to fetch Wrike Site Record",
+            "message": str(e),
+        }
+
+    # Step 2: Extract address from record
+    logger.info("Extracting address from Site Record...")
+    full_address = extract_address_from_record(site_record)
+
+    if not full_address:
+        logger.warning("Could not extract address from custom fields, using title")
+        full_address = record_title
+
+    logger.info("Address: %s", full_address)
+
+    # Step 3: Extract SIR URL
+    logger.info("Extracting SIR report URL from description...")
+    sir_url = extract_sir_url_from_description(record_description)
+
+    if not sir_url:
+        logger.error("No SIR URL found in Site Record description")
+        return {
+            "status": "error",
+            "error": "No SIR URL found",
+            "message": "Could not extract SIR report URL from Site Record description",
+        }
+
+    # Step 4: Extract school type
+    logger.info("Extracting school type from Wrike record...")
+    school_type = extract_school_type_from_record(site_record)
+
+    if not school_type:
+        logger.warning("School type not found in Wrike record, defaulting to 'micro'")
+        school_type = "micro"
+
+    logger.info("School type: %s", school_type)
+
+    # Step 5: Download SIR and send email
+    logger.info("Downloading SIR report PDF from: %s", sir_url)
+    try:
+        sir_pdf = download_pdf_from_url(sir_url)
+        logger.info("Successfully downloaded SIR report (%d bytes)", len(sir_pdf))
+
+        # Send email with SIR report attached
+        logger.info("Sending LOI email to CDS...")
+        email_result = send_loi_email(
+            LOIEmailData(
+                full_address=full_address,
+                school_type=school_type,
+                sir_report_pdf=sir_pdf,
+                sir_report_filename=f"SIR_{record_id}.pdf",
+            )
+        )
+        email_sent = email_result.get("success", False)
+        email_message_id = email_result.get("message_id")
+        logger.info("LOI email sent successfully: %s", email_message_id)
+
+        result = {
+            "status": "success",
+            "email_sent": email_sent,
+            "message_id": email_message_id,
+            "sir_url": sir_url,
+            "message": f"Successfully sent LOI email for {full_address}",
+        }
+
+    except Exception as e:
+        logger.error("Failed to download SIR or send email: %s", e)
+        result = {
+            "status": "error",
+            "error": "Failed to send email",
+            "sir_url": sir_url,
+            "message": str(e),
+        }
+
+    logger.info("send_loi_notification result: %s", result)
+    return result
+
+
+@mcp.tool()
+async def create_drive_folder_with_attachments(
+    email_id: str,
+    folder_name: str,
+    drive_parent_folder_id: str | None = None,
+) -> dict[str, Any]:
+    """Create a Google Drive folder and upload email attachments.
+
+    This tool:
+    - Downloads attachments from a Gmail message
+    - Creates a folder in Google Drive
+    - Uploads all attachments to that folder
+
+    Args:
+        email_id: Gmail message ID
+        folder_name: Name for the new Drive folder
+        drive_parent_folder_id: Optional parent folder ID (uses root if not provided)
+
+    Returns:
+        Dict with folder info and upload status
+    """
+    logger.info("Tool called: create_drive_folder_with_attachments")
+    logger.info(
+        "create_drive_folder_with_attachments params: email_id=%s, folder_name=%s, "
+        "drive_parent_folder_id=%s",
+        email_id,
+        folder_name,
+        drive_parent_folder_id,
+    )
+
+    drive_folder_created = False
+    drive_folder_id = None
+    drive_folder_link = None
+    attachments_uploaded = 0
+
+    try:
+        # Initialize Google client
+        settings = get_settings()
+        google_client = GoogleClient.from_oauth_config(
+            client_config_path=str(settings.get_client_config_path()),
+            token_file_path=str(settings.get_token_file_path()),
+            oauth_port=settings.oauth_port,
+            scopes=settings.google_scopes,
+        )
+        logger.info("Google client initialized successfully")
+
+        # Get email attachments
+        logger.info("Downloading email attachments...")
+        attachments = google_client.get_email_attachments(email_id)
+        logger.info("Found %d attachments", len(attachments))
+
+        if not attachments:
+            logger.warning("No attachments found in email %s", email_id)
+            return {
+                "status": "error",
+                "error": "No attachments found",
+                "message": f"Email {email_id} has no attachments",
+            }
+
+        # Create folder in Drive
+        logger.info(
+            "Creating Drive folder: %s (parent: %s)",
+            folder_name,
+            drive_parent_folder_id or "root",
+        )
+        folder = google_client.create_folder(
+            name=folder_name, parent_id=drive_parent_folder_id
+        )
+        drive_folder_created = True
+        drive_folder_id = folder.get("id")
+        drive_folder_link = folder.get("webViewLink")
+        logger.info("Created folder: %s (id: %s)", folder_name, drive_folder_id)
+
+        # Upload each attachment to the folder
+        uploaded_files: list[dict[str, Any]] = []
+        for attachment in attachments:
+            filename = attachment["filename"]
+            file_data = attachment["data"]
+            mime_type = attachment["mimeType"]
+
+            logger.info("Uploading attachment: %s", filename)
+            uploaded_file = google_client.upload_file(
+                file_name=filename,
+                file_data=file_data,
+                mime_type=mime_type,
+                parent_folder_id=drive_folder_id,
+            )
+            attachments_uploaded += 1
+            uploaded_files.append(
+                {
+                    "name": uploaded_file.get("name"),
+                    "id": uploaded_file.get("id"),
+                    "link": uploaded_file.get("webViewLink"),
+                }
+            )
+            logger.info(
+                "Uploaded: %s (id: %s)",
+                uploaded_file.get("name"),
+                uploaded_file.get("id"),
+            )
+
+        logger.info(
+            "Successfully uploaded %d attachments to folder %s",
+            attachments_uploaded,
+            drive_folder_id,
+        )
+
+        result = {
+            "status": "success",
+            "folder": {
+                "id": drive_folder_id,
+                "name": folder_name,
+                "link": drive_folder_link,
+            },
+            "attachments_uploaded": attachments_uploaded,
+            "uploaded_files": uploaded_files,
+            "message": f"Successfully uploaded {attachments_uploaded} attachments to Drive folder '{folder_name}'",
+        }
+
+    except Exception as e:
+        logger.error(
+            "Failed to process email attachments or create Drive folder: %s", e
+        )
+        result = {
+            "status": "error",
+            "error": "Failed to create folder or upload attachments",
+            "message": str(e),
+        }
+
+    logger.info("create_drive_folder_with_attachments result: %s", result)
     return result
 
 

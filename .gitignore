@@ -57,3 +57,14 @@ htmlcov/
 # Cache
 .ruff_cache/
 .mypy_cache/
+
+# Credentials and tokens
+credentials/*.json
+credentials/*.key
+credentials/*.pem
+!credentials/README.md
+.gcp-saved-tokens.json
+gcp-oauth-keys.json
+client_secrets.json
+*.key
+*.pem
