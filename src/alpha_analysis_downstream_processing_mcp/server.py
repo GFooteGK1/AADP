@@ -11,7 +11,23 @@ from mcp.server import FastMCP
 from .config import get_settings
 from .email_sender import LOIEmailData, send_loi_email
 from .google_client import GoogleClient
-from .utils import download_pdf_from_url, extract_sir_url_from_description
+from .presentation import (
+    ENROLLMENT_DASHBOARD_TABLE_COL,
+    ENROLLMENT_DASHBOARD_TABLE_ID,
+    ENROLLMENT_DASHBOARD_TABLE_ROW,
+    PRESENTATION_FOLDER_ID,
+    TEMPLATE_PRESENTATION_ID,
+    build_dashboard_link_updates,
+    build_presentation_updates,
+    extract_property_features_from_description,
+    extract_scores_from_wrike_record,
+    geocode_address,
+)
+from .utils import (
+    download_pdf_from_url,
+    extract_enrollment_dashboard_url,
+    extract_sir_url_from_description,
+)
 from .wrike import (
     enrich_custom_fields_with_names,
     extract_address_from_record,
@@ -530,6 +546,218 @@ async def create_drive_folder_with_attachments(
         }
 
     logger.info("create_drive_folder_with_attachments result: %s", result)
+    return result
+
+
+@mcp.tool()
+async def create_location_presentation(
+    wrike_record_id: str | None = None,
+    wrike_permalink: str | None = None,
+) -> dict[str, Any]:
+    """Create a Google Slides presentation for a location from Wrike data.
+
+    This tool:
+    - Resolves Wrike record (accepts either ID or permalink)
+    - Extracts location data and scores from the record
+    - Creates a copy of the presentation template
+    - Updates the presentation with enrollment/wealth scores
+    - Adds map and street view images
+
+    Args:
+        wrike_record_id: Wrike Site Record ID (optional if permalink provided)
+        wrike_permalink: Wrike permalink URL (optional if record_id provided)
+
+    Returns:
+        Dict with presentation info
+    """
+    logger.info("Tool called: create_location_presentation")
+    logger.info(
+        "create_location_presentation params: wrike_record_id=%s, wrike_permalink=%s",
+        wrike_record_id,
+        wrike_permalink,
+    )
+
+    # Resolve record ID if permalink is provided
+    if not wrike_record_id and not wrike_permalink:
+        return {
+            "status": "error",
+            "error": "Missing parameter",
+            "message": "Either wrike_record_id or wrike_permalink must be provided",
+        }
+
+    record_id = wrike_record_id
+
+    if wrike_permalink:
+        logger.info("Resolving permalink to record ID...")
+        try:
+            record_id = resolve_permalink_to_id(permalink=wrike_permalink)
+            logger.info("Resolved permalink to record ID: %s", record_id)
+        except Exception as e:
+            logger.error("Failed to resolve permalink: %s", e)
+            return {
+                "status": "error",
+                "error": "Failed to resolve permalink",
+                "message": str(e),
+            }
+
+    if not record_id:
+        return {
+            "status": "error",
+            "error": "Invalid record ID",
+            "message": "Could not determine record ID",
+        }
+
+    # Step 1: Fetch Wrike Site Record
+    logger.info("Fetching Wrike Site Record: %s", record_id)
+    try:
+        site_record = get_site_record_by_id(record_id=record_id)
+        record_title = site_record.get("title", "")
+        logger.info("Fetched Site Record: %s", record_title)
+    except Exception as e:
+        logger.error("Failed to fetch Wrike Site Record: %s", e)
+        return {
+            "status": "error",
+            "error": "Failed to fetch Wrike Site Record",
+            "message": str(e),
+        }
+
+    # Step 2: Extract address
+    logger.info("Extracting address from Site Record...")
+    address = extract_address_from_record(site_record)
+
+    if not address:
+        logger.error("Could not extract address from Site Record")
+        return {
+            "status": "error",
+            "error": "Address not found",
+            "message": "Could not extract address from Wrike Site Record",
+        }
+
+    logger.info("Address: %s", address)
+
+    # Step 3: Extract scores and property features
+    logger.info("Extracting scores from Site Record...")
+    scores = extract_scores_from_wrike_record(site_record)
+    logger.info("Extracted scores: %s", scores)
+
+    logger.info("Extracting property features from description...")
+    record_description = site_record.get("description", "")
+    property_features = extract_property_features_from_description(record_description)
+    logger.info("Extracted property features: %s", property_features)
+
+    logger.info("Extracting enrollment dashboard URL from description...")
+    enrollment_dashboard_url = extract_enrollment_dashboard_url(record_description)
+    if enrollment_dashboard_url:
+        logger.info("Enrollment dashboard URL: %s", enrollment_dashboard_url)
+    else:
+        logger.warning("Enrollment dashboard URL not found in description")
+
+    # Step 4: Initialize Google client
+    try:
+        settings = get_settings()
+        google_client = GoogleClient.from_oauth_config(
+            client_config_path=str(settings.get_client_config_path()),
+            token_file_path=str(settings.get_token_file_path()),
+            oauth_port=settings.oauth_port,
+            scopes=settings.google_scopes,
+        )
+        logger.info("Google client initialized successfully")
+    except Exception as e:
+        logger.error("Failed to initialize Google client: %s", e)
+        return {
+            "status": "error",
+            "error": "Failed to initialize Google client",
+            "message": str(e),
+        }
+
+    # Step 5: Copy presentation template
+    logger.info("Copying presentation template...")
+    try:
+        presentation_name = f"Alpha Location - {record_title}"
+        copied_presentation = google_client.copy_presentation(
+            template_id=TEMPLATE_PRESENTATION_ID,
+            name=presentation_name,
+            parent_folder_id=PRESENTATION_FOLDER_ID,
+        )
+        presentation_id = copied_presentation.get("id")
+        presentation_url = copied_presentation.get("webViewLink")
+
+        if not presentation_id or not isinstance(presentation_id, str):
+            raise RuntimeError("Invalid presentation ID returned")
+
+        logger.info(
+            "Created presentation: %s (id: %s)",
+            presentation_name,
+            presentation_id,
+        )
+
+        if enrollment_dashboard_url:
+            logger.info(
+                "Using hardcoded dashboard link location: table_id=%s, r=%s, c=%s",
+                ENROLLMENT_DASHBOARD_TABLE_ID,
+                ENROLLMENT_DASHBOARD_TABLE_ROW,
+                ENROLLMENT_DASHBOARD_TABLE_COL,
+            )
+    except Exception as e:
+        logger.error("Failed to copy presentation: %s", e)
+        return {
+            "status": "error",
+            "error": "Failed to copy presentation",
+            "message": str(e),
+        }
+
+    # Step 6: Build and apply updates
+    logger.info("Updating presentation with data...")
+    try:
+        update_requests = build_presentation_updates(
+            address=address,
+            enrollment_score=scores.get("enrollment_score"),
+            relative_enrollment_score=scores.get("relative_enrollment_score"),
+            enrollment_score_plus=scores.get("enrollment_score_plus"),
+            relative_enrollment_score_plus=scores.get("relative_enrollment_score_plus"),
+            wealth_score=scores.get("wealth_score"),
+            relative_wealth_score=scores.get("relative_wealth_score"),
+            square_footage=property_features.get("square_footage"),
+            complete_building=property_features.get("complete_building"),
+            move_in_ready=property_features.get("move_in_ready"),
+            current_space_usage=property_features.get("current_space_usage"),
+        )
+
+        if enrollment_dashboard_url:
+            logger.info("Adding enrollment dashboard link updates...")
+            update_requests += build_dashboard_link_updates(
+                link_url=enrollment_dashboard_url,
+                table_id=ENROLLMENT_DASHBOARD_TABLE_ID,
+                row_index=ENROLLMENT_DASHBOARD_TABLE_ROW,
+                col_index=ENROLLMENT_DASHBOARD_TABLE_COL,
+            )
+
+        google_client.batch_update_presentation(presentation_id, update_requests)
+        logger.info("Successfully updated presentation")
+
+        result = {
+            "status": "success",
+            "presentation": {
+                "id": presentation_id,
+                "name": presentation_name,
+                "url": presentation_url,
+            },
+            "message": f"Successfully created presentation for {address}",
+        }
+
+    except Exception as e:
+        logger.error("Failed to update presentation: %s", e)
+        result = {
+            "status": "error",
+            "presentation": {
+                "id": presentation_id,
+                "url": presentation_url,
+            },
+            "error": "Failed to update presentation content",
+            "message": f"Presentation created but update failed: {e}",
+        }
+
+    logger.info("create_location_presentation result: %s", result)
     return result
 
 

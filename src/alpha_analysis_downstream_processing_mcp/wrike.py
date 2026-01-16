@@ -254,6 +254,7 @@ def _get_all_folder_ids(*, access_token: str) -> list[str]:
 def get_site_records_by_stage(
     *,
     stage: str = "1. Looking for Sites",
+    required_owner_id: str | None = None,
     cfg: WrikeConfig | None = None,
 ) -> list[dict[str, Any]]:
     """
@@ -277,6 +278,15 @@ def get_site_records_by_stage(
     # Step 2: Batch query folders (100 at a time per Wrike API limits)
     batch_size = 100
     all_site_records: list[dict[str, Any]] = []
+
+    if required_owner_id:
+        logger.info(
+            "Filtering Site Records by stage '%s' and ownerId '%s'",
+            stage,
+            required_owner_id,
+        )
+    else:
+        logger.info("Filtering Site Records by stage '%s' (no owner filter)", stage)
 
     for i in range(0, len(folder_ids), batch_size):
         batch = folder_ids[i : i + batch_size]
@@ -330,6 +340,26 @@ def get_site_records_by_stage(
             # Check if it's a Site Record
             if item.get("customItemTypeId") != WRIKE_SITE_RECORD_TYPE_ID:
                 continue
+
+            # Require ownerId match before stage filtering (if configured)
+            if required_owner_id:
+                owner_ids = None
+                if isinstance(item.get("project"), dict):
+                    owner_ids = item.get("project", {}).get("ownerIds")
+                if owner_ids is None:
+                    owner_ids = item.get("ownerIds")
+
+                if (
+                    not isinstance(owner_ids, list)
+                    or required_owner_id not in owner_ids
+                ):
+                    logger.debug(
+                        "Skipping Site Record %s due to missing ownerId '%s' (ownerIds=%s)",
+                        item.get("id"),
+                        required_owner_id,
+                        owner_ids,
+                    )
+                    continue
 
             # Check if overall_site_stage matches
             custom_fields = item.get("customFields")
@@ -504,7 +534,10 @@ def find_site_record_by_address(
     logger.info("Finding site record by address: %s (stage: %s)", address, stage)
 
     # Get all Site Records with the specified stage
-    site_records = get_site_records_by_stage(stage=stage)
+    site_records = get_site_records_by_stage(
+        stage=stage,
+        required_owner_id="KUAUQW6O",  # Greg Foote
+    )
 
     if not site_records:
         logger.warning("No Site Records found with stage '%s'", stage)

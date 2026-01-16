@@ -32,8 +32,9 @@ class Settings(BaseSettings):
         default=[
             "https://www.googleapis.com/auth/gmail.readonly",
             "https://www.googleapis.com/auth/drive",
+            "https://www.googleapis.com/auth/presentations",
         ],
-        description="OAuth scopes for Gmail and Drive operations",
+        description="OAuth scopes for Gmail, Drive, and Slides operations",
     )
 
     # Logging

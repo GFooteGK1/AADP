@@ -25,7 +25,10 @@ class GoogleClient:
         self.credentials = credentials
         self.gmail_service = build("gmail", "v1", credentials=credentials)
         self.drive_service = build("drive", "v3", credentials=credentials)
-        logger.info("Initialized GoogleClient with Gmail v1 and Drive v3 APIs")
+        self.slides_service = build("slides", "v1", credentials=credentials)
+        logger.info(
+            "Initialized GoogleClient with Gmail v1, Drive v3, and Slides v1 APIs"
+        )
 
     @classmethod
     def from_oauth_config(
@@ -44,17 +47,28 @@ class GoogleClient:
         if token_file.exists():
             logger.info("Loading existing credentials from: %s", token_file)
             credentials = Credentials.from_authorized_user_file(str(token_file), scopes)
+            if credentials and not credentials.refresh_token:
+                logger.warning(
+                    "Loaded credentials missing refresh_token; forcing OAuth flow to obtain offline access"
+                )
+                credentials = None
 
         if not credentials or not credentials.valid:
             if credentials and credentials.expired and credentials.refresh_token:
                 logger.info("Refreshing expired credentials")
                 credentials.refresh(Request())
             else:
-                logger.info("Starting OAuth flow - browser window will open")
+                logger.info(
+                    "Starting OAuth flow - browser window will open (requesting offline access)"
+                )
                 flow = InstalledAppFlow.from_client_secrets_file(
                     client_config_path, scopes
                 )
-                credentials = flow.run_local_server(port=oauth_port)
+                credentials = flow.run_local_server(
+                    port=oauth_port,
+                    access_type="offline",
+                    prompt="consent",
+                )
 
             if credentials is None:
                 raise RuntimeError("Failed to obtain OAuth credentials")
@@ -262,3 +276,94 @@ class GoogleClient:
         except HttpError as error:
             logger.error("Failed to upload file: %s", error)
             raise RuntimeError(f"Failed to upload file: {error}") from error
+
+    # ---------- Slides API Methods ----------
+
+    def copy_presentation(
+        self,
+        template_id: str,
+        name: str,
+        parent_folder_id: str,
+    ) -> dict[str, Any]:
+        """
+        Copy a Google Slides presentation template.
+
+        Args:
+            template_id: Template presentation ID
+            name: Name for the new presentation
+            parent_folder_id: Parent folder ID
+
+        Returns:
+            Dict with presentation metadata including 'id' and 'webViewLink'
+        """
+        logger.info(
+            "Copying Slides template: %s (name: %s, parent: %s)",
+            template_id,
+            name,
+            parent_folder_id,
+        )
+
+        body: dict[str, Any] = {
+            "name": name,
+            "parents": [parent_folder_id],
+        }
+
+        try:
+            presentation = (
+                self.drive_service.files()
+                .copy(
+                    fileId=template_id,
+                    body=body,
+                    supportsAllDrives=True,
+                    fields="id,webViewLink",
+                )
+                .execute()
+            )
+            logger.info(
+                "Successfully copied presentation: %s (id: %s)",
+                name,
+                presentation.get("id"),
+            )
+            return presentation
+
+        except HttpError as error:
+            logger.error("Failed to copy presentation: %s", error)
+            raise RuntimeError(f"Failed to copy presentation: {error}") from error
+
+    def batch_update_presentation(
+        self, presentation_id: str, requests: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """
+        Batch update a Google Slides presentation.
+
+        Args:
+            presentation_id: Presentation ID
+            requests: List of update requests
+
+        Returns:
+            Dict with batch update response
+        """
+        logger.info(
+            "Batch updating presentation: %s (%d requests)",
+            presentation_id,
+            len(requests),
+        )
+
+        try:
+            response = (
+                self.slides_service.presentations()
+                .batchUpdate(
+                    presentationId=presentation_id,
+                    body={"requests": requests},
+                )
+                .execute()
+            )
+            logger.info(
+                "Successfully updated presentation: %s",
+                presentation_id,
+            )
+            return response
+
+        except HttpError as error:
+            logger.error("Failed to update presentation: %s", error)
+            raise RuntimeError(f"Failed to update presentation: {error}") from error

@@ -35,6 +35,33 @@ def extract_sir_url_from_description(description: str) -> str | None:
     return None
 
 
+def extract_enrollment_dashboard_url(description: str) -> str | None:
+    """
+    Extract the enrollment dashboard URL from a Wrike description.
+
+    Expected format in description:
+    <li><b>Dashboards:</b> <a href="https://...">Enrollment dashboard</a> · ...</li>
+
+    Args:
+        description: HTML description from Wrike
+
+    Returns:
+        Enrollment dashboard URL or None if not found
+    """
+    pattern = (
+        r'<li><b>Dashboards:</b>.*?<a[^>]+href="([^"]+)"[^>]*>\s*'
+        r"Enrollment dashboard\s*</a>"
+    )
+    match = re.search(pattern, description, re.IGNORECASE | re.DOTALL)
+    if match:
+        url = match.group(1)
+        logger.info("Extracted enrollment dashboard URL: %s", url)
+        return url
+
+    logger.warning("Could not find enrollment dashboard URL in description")
+    return None
+
+
 def download_pdf_from_url(url: str, timeout: int = 30) -> bytes:
     """
     Download a PDF file from a URL.

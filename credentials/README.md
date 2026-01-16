@@ -10,7 +10,7 @@ Place your Google OAuth 2.0 client configuration file here as `client_secrets.js
 
 1. Go to Google Cloud Console (`https://console.cloud.google.com`)
 2. Create a new project or select existing one
-3. Enable the **Gmail API** and **Google Drive API**
+3. Enable the **Gmail API**, **Google Drive API**, and **Google Slides API**
 4. Go to "Credentials" → "Create Credentials" → "OAuth 2.0 Client IDs"
 5. Choose "Web application" as application type
 6. Add your redirect URI to "Authorized redirect URIs"
@@ -27,6 +27,7 @@ Scopes used:
 
 - `https://www.googleapis.com/auth/gmail.readonly` - Read emails and download attachments
 - `https://www.googleapis.com/auth/drive` - Create folders and upload files to Google Drive
+- `https://www.googleapis.com/auth/presentations` - Create and update Google Slides presentations
 
 ## Security Note
 
