@@ -435,7 +435,7 @@ If no good match is found, return:
   "reasoning": "explanation",
   "matched_id": null
 }
-Only return a matched_id if you are confident about the match. It is completely acceptable to return null if you are not confident about the match.
+Only return a matched_id if you are confident about the match, and there are only minor variations in the address (as mentioned above). It is completely acceptable to return null if you are not confident about the match.
 """
 
     user_prompt = f"""Target address: {address}
