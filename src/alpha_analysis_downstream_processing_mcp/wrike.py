@@ -427,16 +427,16 @@ Consider:
 Return ONLY a JSON object with the structure:
 {
   "matched_id": "the ID of the best matching record",
-  "confidence": "high|medium|low",
   "reasoning": "brief explanation of why this is the best match"
 }
 
 If no good match is found, return:
 {
   "reasoning": "explanation",
-  "confidence": "none",
   "matched_id": null
-}"""
+}
+Only return a matched_id if you are confident about the match. It is completely acceptable to return null if you are not confident about the match.
+"""
 
     user_prompt = f"""Target address: {address}
 
@@ -448,7 +448,7 @@ Which candidate best matches the target address?"""
     logger.info("Calling OpenAI to match address: %s", address)
 
     response = client.chat.completions.create(
-        model="gpt-5-mini-2025-08-07",
+        model="gpt-5.2-2025-12-11",
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
@@ -463,13 +463,11 @@ Which candidate best matches the target address?"""
 
     result: dict[str, str | None] = json.loads(result_text)
     matched_id: str | None = result.get("matched_id")
-    confidence: str | None = result.get("confidence")
     reasoning: str = result.get("reasoning")
 
     logger.info(
-        "LLM match result: matched_id=%s, confidence=%s, reasoning=%s",
+        "LLM match result: matched_id=%s, reasoning=%s",
         matched_id,
-        confidence,
         reasoning,
     )
 
