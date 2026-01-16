@@ -17,7 +17,8 @@ AWS_REGION = "us-east-1"  # Default AWS region for SES
 
 # LOI email recipients
 LOI_TO_ADDRESSES: list[str] = ["sahil.marwaha@trilogy.com"]
-LOI_CC_ADDRESSES: list[str] = ["greg.foote@trilogy.com"]
+# TODO: REVERT
+LOI_CC_ADDRESSES: list[str] = ["sahil.marwaha@trilogy.com"]
 
 
 class _SESClient(Protocol):
