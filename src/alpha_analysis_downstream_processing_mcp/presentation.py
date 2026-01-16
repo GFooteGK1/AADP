@@ -165,11 +165,7 @@ def _build_image_updates(
     street_image_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """
-    Build image replacement requests using text placeholders.
-
-    Template should contain shapes/text boxes with:
-    - {{STREET_VIEW}} - will be replaced with street view image
-    - {{MAP_VIEW}} - will be replaced with map image
+    Build image replacement requests targeting specific image element IDs.
     """
     requests: list[dict[str, Any]] = []
 
