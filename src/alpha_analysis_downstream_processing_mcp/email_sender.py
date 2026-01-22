@@ -16,8 +16,15 @@ logger = logging.getLogger("[email_sender]")
 AWS_REGION = "us-east-1"  # Default AWS region for SES
 
 # LOI email recipients
-LOI_TO_ADDRESSES: list[str] = ["sahil.marwaha@trilogy.com"]
-LOI_CC_ADDRESSES: list[str] = ["greg.foote@trilogy.com", "andrew.vincent@trilogy.com"]
+LOI_TO_ADDRESSES: list[str] = [
+    "mswannie@cdsdevelopment.com",
+    "DHowse@cdsdevelopment.com",
+]
+LOI_CC_ADDRESSES: list[str] = [
+    "sahil.marwaha@trilogy.com",
+    "greg.foote@trilogy.com",
+    "andrew.vincent@trilogy.com",
+]
 
 
 class _SESClient(Protocol):
