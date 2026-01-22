@@ -739,7 +739,8 @@ async def create_location_presentation(
         try:
             logger.info("Sending presentation email to sahil.marwaha@trilogy.com...")
             email_config = EmailConfig(
-                to_addresses=["sahil.marwaha@trilogy.com"],
+                to_addresses=["andrew.vincent@trilogy.com"],
+                cc_addresses=["sahil.marwaha@trilogy.com"],
                 subject=f"Alpha Location Presentation - {address}",
                 body_text=(
                     "Your presentation is ready.\n\n"
@@ -749,7 +750,7 @@ async def create_location_presentation(
                 body_html=(
                     "<p>Your presentation is ready.</p>"
                     f"<p><strong>Address:</strong> {address}</p>"
-                    f'<p><strong>Presentation:</strong> '
+                    f"<p><strong>Presentation:</strong> "
                     f'<a href="{presentation_url}">{presentation_url}</a></p>'
                 ),
             )
