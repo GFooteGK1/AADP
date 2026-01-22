@@ -267,6 +267,7 @@ Processed X emails:
 - Log: "No matching Wrike Site Record found for {address}"
 - This means no record exists with stage "1. Looking for Sites" matching that address
 - Skip remaining steps for this email
+- If updating the Wrike record fails, do not proceed for this location unless explicitly asked
 
 ### SIR URL Not Found
 

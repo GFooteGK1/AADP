@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from mcp.server import FastMCP
 
 from .config import get_settings
-from .email_sender import LOIEmailData, send_loi_email
+from .email_sender import EmailConfig, LOIEmailData, send_email, send_loi_email
 from .google_client import GoogleClient
 from .presentation import (
     ENROLLMENT_DASHBOARD_TABLE_COL,
@@ -735,6 +735,33 @@ async def create_location_presentation(
         google_client.batch_update_presentation(presentation_id, update_requests)
         logger.info("Successfully updated presentation")
 
+        email_status: dict[str, Any] | None = None
+        try:
+            logger.info("Sending presentation email to sahil.marwaha@trilogy.com...")
+            email_config = EmailConfig(
+                to_addresses=["sahil.marwaha@trilogy.com"],
+                subject=f"Alpha Location Presentation - {address}",
+                body_text=(
+                    "Your presentation is ready.\n\n"
+                    f"Address: {address}\n"
+                    f"Presentation: {presentation_url}\n"
+                ),
+                body_html=(
+                    "<p>Your presentation is ready.</p>"
+                    f"<p><strong>Address:</strong> {address}</p>"
+                    f'<p><strong>Presentation:</strong> '
+                    f'<a href="{presentation_url}">{presentation_url}</a></p>'
+                ),
+            )
+            email_status = send_email(email_config)
+            logger.info("Presentation email sent: %s", email_status)
+        except Exception as e:
+            logger.error("Failed to send presentation email: %s", e)
+            email_status = {
+                "success": False,
+                "error": str(e),
+            }
+
         result = {
             "status": "success",
             "presentation": {
@@ -742,6 +769,7 @@ async def create_location_presentation(
                 "name": presentation_name,
                 "url": presentation_url,
             },
+            "email": email_status,
             "message": f"Successfully created presentation for {address}",
         }
 
