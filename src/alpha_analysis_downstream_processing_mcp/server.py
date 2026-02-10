@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 import logging
+import re
 from typing import Any
 
 from dotenv import load_dotenv
@@ -55,6 +57,22 @@ logger.info("Alpha Analysis Downstream Processing MCP server starting")
 mcp = FastMCP("alpha-analysis-downstream-processing-mcp")
 
 
+DATE_DD_MM_YYYY_REGEX = re.compile(r"^\d{2}/\d{2}/\d{4}$")
+
+
+def _is_valid_dd_mm_yyyy(date_str: str) -> bool:
+    """Validate date string in strict DD/MM/YYYY format."""
+    if not DATE_DD_MM_YYYY_REGEX.fullmatch(date_str):
+        return False
+
+    try:
+        datetime.strptime(date_str, "%d/%m/%Y")
+    except ValueError:
+        return False
+
+    return True
+
+
 @mcp.tool()
 async def update_wrike_site_record(
     street_address: str,
@@ -82,7 +100,7 @@ async def update_wrike_site_record(
         city: City name
         state: Two-letter state code
         zip_code: 5-digit zip code
-        loi_signed_date: LOI signed date in YYYY-MM-DD format
+        loi_signed_date: LOI signed date in DD/MM/YYYY format
         contact_name: Full name of site POC
         contact_email: Email address of site POC
         contact_phone: Phone number in (XXX) XXX-XXXX format
@@ -112,6 +130,22 @@ async def update_wrike_site_record(
         move_in_ready,
         current_space_usage,
     )
+
+    # Validate LOI signed date format before making Wrike calls
+    logger.info("Validating loi_signed_date format: %s", loi_signed_date)
+    if not _is_valid_dd_mm_yyyy(loi_signed_date):
+        logger.error(
+            "Invalid loi_signed_date format received: %s (expected DD/MM/YYYY)",
+            loi_signed_date,
+        )
+        return {
+            "status": "error",
+            "error": "Invalid LOI signed date format",
+            "field": "loi_signed_date",
+            "expected_format": "DD/MM/YYYY",
+            "received_value": loi_signed_date,
+            "message": "loi_signed_date must match DD/MM/YYYY (for example, 25/12/2026)",
+        }
 
     # Step 1: Construct full address for matching
     full_address = f"{street_address}, {city}, {state} {zip_code}"

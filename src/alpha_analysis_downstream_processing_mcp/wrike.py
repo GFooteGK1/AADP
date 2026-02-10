@@ -806,7 +806,7 @@ def update_site_record_with_location_data(
 
     Args:
         record_id: Wrike folder/project ID
-        loi_signed_date: LOI signed date in YYYY-MM-DD format
+        loi_signed_date: LOI signed date in DD/MM/YYYY format
         square_footage: Square footage of the space
         complete_building: Whether taking the complete building
         move_in_ready: Whether the space is move-in ready
