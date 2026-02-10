@@ -49,6 +49,7 @@ WRIKE_CUSTOM_FIELDS = {
     # Other
     "site_poc": "IEAGN6I6JUAKEKBU",  # Site POC (LinkToDatabase)
     "p1_accountable": "IEAGN6I6JUAJK2MQ",  # P1 Accountable (Contacts)
+    "loi_signed_date": "IEAGN6I6JUAIOUVH",
 }
 
 # Reverse mapping: ID -> name
@@ -787,6 +788,7 @@ def update_site_record(
 def update_site_record_with_location_data(
     *,
     record_id: str,
+    loi_signed_date: str | None = None,
     square_footage: str | None = None,
     complete_building: str | None = None,
     move_in_ready: str | None = None,
@@ -804,6 +806,7 @@ def update_site_record_with_location_data(
 
     Args:
         record_id: Wrike folder/project ID
+        loi_signed_date: LOI signed date in YYYY-MM-DD format
         square_footage: Square footage of the space
         complete_building: Whether taking the complete building
         move_in_ready: Whether the space is move-in ready
@@ -830,6 +833,25 @@ def update_site_record_with_location_data(
         }
     )
     logger.info("Adding overall_site_stage update to custom fields")
+
+    # LOI signed date (date field)
+    if loi_signed_date is not None:
+        loi_signed_date_clean = loi_signed_date.strip()
+        if loi_signed_date_clean:
+            fields.append(
+                {
+                    "id": WRIKE_CUSTOM_FIELDS["loi_signed_date"],
+                    "value": loi_signed_date_clean,
+                }
+            )
+            logger.info(
+                "Adding loi_signed_date update to custom fields: %s",
+                loi_signed_date_clean,
+            )
+        else:
+            logger.warning(
+                "Received loi_signed_date but it was empty after trimming; skipping field update"
+            )
 
     # Square footage (numeric field)
     if square_footage is not None:

@@ -61,6 +61,7 @@ async def update_wrike_site_record(
     city: str,
     state: str,
     zip_code: str,
+    loi_signed_date: str,
     contact_name: str,
     contact_email: str,
     contact_phone: str,
@@ -81,6 +82,7 @@ async def update_wrike_site_record(
         city: City name
         state: Two-letter state code
         zip_code: 5-digit zip code
+        loi_signed_date: LOI signed date in YYYY-MM-DD format
         contact_name: Full name of site POC
         contact_email: Email address of site POC
         contact_phone: Phone number in (XXX) XXX-XXXX format
@@ -94,13 +96,14 @@ async def update_wrike_site_record(
     """
     logger.info("Tool called: update_wrike_site_record")
     logger.info(
-        "update_wrike_site_record params: street_address=%s, city=%s, state=%s, zip_code=%s, "
+        "update_wrike_site_record params: street_address=%s, city=%s, state=%s, zip_code=%s, loi_signed_date=%s, "
         "contact_name=%s, contact_email=%s, contact_phone=%s, square_footage=%s, "
         "complete_building=%s, move_in_ready=%s, current_space_usage=%s",
         street_address,
         city,
         state,
         zip_code,
+        loi_signed_date,
         contact_name,
         contact_email,
         contact_phone,
@@ -157,6 +160,7 @@ async def update_wrike_site_record(
     try:
         update_site_record_with_location_data(
             record_id=record_id,
+            loi_signed_date=loi_signed_date,
             square_footage=square_footage,
             complete_building=complete_building,
             move_in_ready=move_in_ready,
