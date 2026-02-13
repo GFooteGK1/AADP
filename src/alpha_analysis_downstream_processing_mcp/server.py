@@ -455,6 +455,61 @@ async def send_loi_notification(
 
 
 @mcp.tool()
+async def list_drive_folders(
+    drive_parent_folder_id: str | None = None,
+) -> dict[str, Any]:
+    """List direct child folder names under a Google Drive parent folder.
+
+    Args:
+        drive_parent_folder_id: Optional parent folder ID (uses root if not provided)
+
+    Returns:
+        Dict containing folder names and count
+    """
+    logger.info("Tool called: list_drive_folders")
+    logger.info(
+        "list_drive_folders params: drive_parent_folder_id=%s",
+        drive_parent_folder_id,
+    )
+
+    try:
+        settings = get_settings()
+        google_client = GoogleClient.from_oauth_config(
+            client_config_path=str(settings.get_client_config_path()),
+            token_file_path=str(settings.get_token_file_path()),
+            oauth_port=settings.oauth_port,
+            scopes=settings.google_scopes,
+        )
+        logger.info("Google client initialized successfully for folder listing")
+
+        folders = google_client.list_folders(parent_id=drive_parent_folder_id)
+        folder_names = [folder.get("name", "") for folder in folders if folder.get("name")]
+        logger.info(
+            "list_drive_folders found %d folders under parent %s",
+            len(folder_names),
+            drive_parent_folder_id or "root",
+        )
+
+        result = {
+            "status": "success",
+            "drive_parent_folder_id": drive_parent_folder_id or "root",
+            "folder_count": len(folder_names),
+            "folders": folder_names,
+            "message": f"Found {len(folder_names)} folders",
+        }
+    except Exception as e:
+        logger.error("Failed to list Drive folders: %s", e)
+        result = {
+            "status": "error",
+            "error": "Failed to list Drive folders",
+            "message": str(e),
+        }
+
+    logger.info("list_drive_folders result: %s", result)
+    return result
+
+
+@mcp.tool()
 async def create_drive_folder_with_attachments(
     email_id: str,
     folder_name: str,

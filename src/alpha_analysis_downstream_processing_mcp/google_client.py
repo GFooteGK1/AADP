@@ -218,6 +218,58 @@ class GoogleClient:
             logger.error("Failed to create folder: %s", error)
             raise RuntimeError(f"Failed to create folder: {error}") from error
 
+    def list_folders(self, parent_id: str | None = None) -> list[dict[str, Any]]:
+        """
+        List direct child folders under a Drive parent folder.
+
+        Args:
+            parent_id: Parent folder ID (uses root if not provided)
+
+        Returns:
+            List of folder metadata dicts including 'id', 'name', and 'webViewLink'
+        """
+        parent = parent_id or "root"
+        query = (
+            f"'{parent}' in parents and "
+            "mimeType='application/vnd.google-apps.folder' and "
+            "trashed=false"
+        )
+        logger.info("Listing Drive folders under parent: %s", parent)
+
+        try:
+            folders: list[dict[str, Any]] = []
+            page_token: str | None = None
+
+            while True:
+                response = (
+                    self.drive_service.files()
+                    .list(
+                        q=query,
+                        fields="nextPageToken,files(id,name,webViewLink,parents)",
+                        supportsAllDrives=True,
+                        includeItemsFromAllDrives=True,
+                        pageToken=page_token,
+                        orderBy="name_natural",
+                    )
+                    .execute()
+                )
+                page_folders = response.get("files", [])
+                folders.extend(page_folders)
+                page_token = response.get("nextPageToken")
+                if not page_token:
+                    break
+
+            logger.info(
+                "Found %d Drive folders under parent %s",
+                len(folders),
+                parent,
+            )
+            return folders
+
+        except HttpError as error:
+            logger.error("Failed to list Drive folders: %s", error)
+            raise RuntimeError(f"Failed to list Drive folders: {error}") from error
+
     def upload_file(
         self,
         file_name: str,
