@@ -65,21 +65,37 @@ class LOIEmailData:
     grades_served: str = ""
     total_students: int = 0
     total_staff: str = ""
+    architect: str = ""
 
     def __post_init__(self) -> None:
         """Set derived fields based on school_type."""
-        if self.school_type == "micro":
+        normalized_school_type = self.school_type.strip().lower()
+        self.school_type = normalized_school_type
+
+        logger.info(
+            "Deriving LOI email fields for school_type=%s", normalized_school_type
+        )
+
+        if normalized_school_type == "micro":
             self.grades_served = "K-8"
             self.total_students = 25
             self.total_staff = "4"
-        elif self.school_type == "250":
+            self.architect = "Apogee"
+        elif normalized_school_type == "250":
             self.grades_served = "K-12"
             self.total_students = 250
             self.total_staff = "TBD"
-        elif self.school_type == "1000":
+            self.architect = "David Bench"
+        elif normalized_school_type == "1000":
             self.grades_served = "K-12"
             self.total_students = 1000
             self.total_staff = "TBD"
+            self.architect = "David Bench"
+        else:
+            logger.warning(
+                "Unknown school_type=%s while deriving LOI email fields",
+                normalized_school_type,
+            )
 
 
 class SESEmailError(RuntimeError):
@@ -214,6 +230,7 @@ def build_loi_email(data: LOIEmailData) -> EmailConfig:
         "Site Information:",
         f"Full Address: {data.full_address}",
         f"Type of School: {type_display}",
+        f"Architect: {data.architect}",
         f"Grades Served: {data.grades_served}",
         f"Total Students: {data.total_students}",
         f"Total Staff: {data.total_staff}",
@@ -276,6 +293,7 @@ def build_loi_email(data: LOIEmailData) -> EmailConfig:
     <table class="info-table">
         <tr><td>Full Address</td><td>{data.full_address}</td></tr>
         <tr><td>Type of School</td><td>{type_display}</td></tr>
+        <tr><td>Architect</td><td>{data.architect}</td></tr>
         <tr><td>Grades Served</td><td>{data.grades_served}</td></tr>
         <tr><td>Total Students</td><td>{data.total_students}</td></tr>
         <tr><td>Total Staff</td><td>{data.total_staff}</td></tr>
