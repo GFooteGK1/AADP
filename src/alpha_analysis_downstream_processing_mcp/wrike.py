@@ -50,10 +50,16 @@ WRIKE_CUSTOM_FIELDS = {
     "site_poc": "IEAGN6I6JUAKEKBU",  # Site POC (LinkToDatabase)
     "p1_accountable": "IEAGN6I6JUAJK2MQ",  # P1 Accountable (Contacts)
     "loi_signed_date": "IEAGN6I6JUAIOUVH",
+    "vendor_team": "IEAGN6I6JUAKDCYE",  # Vendor Team (LinkToDatabase)
 }
 
 # Reverse mapping: ID -> name
 WRIKE_CUSTOM_FIELD_NAMES = {v: k for k, v in WRIKE_CUSTOM_FIELDS.items()}
+
+# Required vendor team members to set during downstream processing
+# Monica Swannie -> RE5174381
+# Shinpei Kuo -> RE5174384
+WRIKE_REQUIRED_VENDOR_TEAM_IDS: list[str] = ["RE5174381", "RE5174384"]
 
 
 @dataclass(frozen=True)
@@ -865,9 +871,19 @@ def update_site_record_with_location_data(
         except ValueError:
             logger.warning("Could not parse square_footage: %s", square_footage)
 
-    # Get current record and append Real Estate section to existing description
+    # Get current record for existing field state and description append
     current_record = get_site_record_by_id(record_id=record_id, cfg=cfg)
     current_description = current_record.get("description", "")
+
+    # Vendor Team (LinkToDatabase): always set to the required two IDs
+    vendor_team_value = json.dumps(WRIKE_REQUIRED_VENDOR_TEAM_IDS)
+    fields.append(
+        {"id": WRIKE_CUSTOM_FIELDS["vendor_team"], "value": vendor_team_value}
+    )
+    logger.info(
+        "Adding vendor_team update to custom fields: ids=%s",
+        WRIKE_REQUIRED_VENDOR_TEAM_IDS,
+    )
 
     # Build the Real Estate section with actual values
     real_estate_section = (
