@@ -57,16 +57,16 @@ logger.info("Alpha Analysis Downstream Processing MCP server starting")
 mcp = FastMCP("alpha-analysis-downstream-processing-mcp")
 
 
-DATE_DD_MM_YYYY_REGEX = re.compile(r"^\d{2}/\d{2}/\d{4}$")
+DATE_MM_DD_YYYY_REGEX = re.compile(r"^\d{2}/\d{2}/\d{4}$")
 
 
-def _is_valid_dd_mm_yyyy(date_str: str) -> bool:
-    """Validate date string in strict DD/MM/YYYY format."""
-    if not DATE_DD_MM_YYYY_REGEX.fullmatch(date_str):
+def _is_valid_mm_dd_yyyy(date_str: str) -> bool:
+    """Validate date string in strict MM/DD/YYYY format."""
+    if not DATE_MM_DD_YYYY_REGEX.fullmatch(date_str):
         return False
 
     try:
-        datetime.strptime(date_str, "%d/%m/%Y")
+        datetime.strptime(date_str, "%m/%d/%Y")
     except ValueError:
         return False
 
@@ -100,7 +100,7 @@ async def update_wrike_site_record(
         city: City name
         state: Two-letter state code
         zip_code: 5-digit zip code
-        loi_signed_date: LOI signed date in DD/MM/YYYY format
+        loi_signed_date: LOI signed date in MM/DD/YYYY format
         contact_name: Full name of site POC
         contact_email: Email address of site POC
         contact_phone: Phone number in (XXX) XXX-XXXX format
@@ -133,18 +133,18 @@ async def update_wrike_site_record(
 
     # Validate LOI signed date format before making Wrike calls
     logger.info("Validating loi_signed_date format: %s", loi_signed_date)
-    if not _is_valid_dd_mm_yyyy(loi_signed_date):
+    if not _is_valid_mm_dd_yyyy(loi_signed_date):
         logger.error(
-            "Invalid loi_signed_date format received: %s (expected DD/MM/YYYY)",
+            "Invalid loi_signed_date format received: %s (expected MM/DD/YYYY)",
             loi_signed_date,
         )
         return {
             "status": "error",
             "error": "Invalid LOI signed date format",
             "field": "loi_signed_date",
-            "expected_format": "DD/MM/YYYY",
+            "expected_format": "MM/DD/YYYY",
             "received_value": loi_signed_date,
-            "message": "loi_signed_date must match DD/MM/YYYY (for example, 25/12/2026)",
+            "message": "loi_signed_date must match MM/DD/YYYY (for example, 12/25/2026)",
         }
 
     # Step 1: Construct full address for matching
@@ -483,7 +483,9 @@ async def list_drive_folders(
         logger.info("Google client initialized successfully for folder listing")
 
         folders = google_client.list_folders(parent_id=drive_parent_folder_id)
-        folder_names = [folder.get("name", "") for folder in folders if folder.get("name")]
+        folder_names = [
+            folder.get("name", "") for folder in folders if folder.get("name")
+        ]
         logger.info(
             "list_drive_folders found %d folders under parent %s",
             len(folder_names),

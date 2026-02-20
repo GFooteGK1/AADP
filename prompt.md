@@ -93,7 +93,7 @@ For each email found:
    - `city` - city name
    - `state` - two-letter state code (TX, CA, NY, etc.)
    - `zip` - 5-digit zip code
-   - `loi_signed_date` - date email was received, formatted as DD/MM/YYYY
+   - `loi_signed_date` - date email was received, formatted as MM/DD/YYYY
    - `contact_name` - full name of contact person
    - `contact_email` - email address
    - `contact_phone` - phone number in (XXX) XXX-XXXX format
@@ -107,7 +107,7 @@ For each email found:
    - For street_address, include ONLY street number and name (e.g., "123 Main Street")
    - Use standard two-letter state codes
    - Set `loi_signed_date` from the email received timestamp/date header (not from email body content)
-   - Format `loi_signed_date` strictly as DD/MM/YYYY
+   - Format `loi_signed_date` strictly as MM/DD/YYYY
    - Format phone as (XXX) XXX-XXXX
    - If any field cannot be found, use empty string ""
 
