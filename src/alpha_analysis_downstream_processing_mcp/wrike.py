@@ -51,6 +51,7 @@ WRIKE_CUSTOM_FIELDS = {
     "p1_accountable": "IEAGN6I6JUAJK2MQ",  # P1 Accountable (Contacts)
     "loi_signed_date": "IEAGN6I6JUAIOUVH",
     "vendor_team": "IEAGN6I6JUAKDCYE",  # Vendor Team (LinkToDatabase)
+    "google_folder": "IEAGN6I6JUAIKGJH",  # Google Folder (Text) - Drive folder link
 }
 
 # Reverse mapping: ID -> name
