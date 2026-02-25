@@ -31,12 +31,14 @@ from .utils import (
     extract_sir_url_from_description,
 )
 from .wrike import (
+    WRIKE_CUSTOM_FIELDS,
     enrich_custom_fields_with_names,
     extract_address_from_record,
     extract_school_type_from_record,
     find_site_record_by_address,
     get_site_record_by_id,
     resolve_permalink_to_id,
+    update_site_record,
     update_site_record_with_location_data,
 )
 
@@ -516,6 +518,7 @@ async def create_drive_folder_with_attachments(
     email_id: str,
     folder_name: str,
     drive_parent_folder_id: str | None = None,
+    wrike_record_id: str | None = None,
 ) -> dict[str, Any]:
     """Create a Google Drive folder and upload email attachments.
 
@@ -528,6 +531,7 @@ async def create_drive_folder_with_attachments(
         email_id: Gmail message ID
         folder_name: Name for the new Drive folder
         drive_parent_folder_id: Optional parent folder ID (uses root if not provided)
+        wrike_record_id: Optional Wrike task ID to update the Google Folder field
 
     Returns:
         Dict with folder info and upload status
@@ -545,6 +549,7 @@ async def create_drive_folder_with_attachments(
     drive_folder_id = None
     drive_folder_link = None
     attachments_uploaded = 0
+    wrike_update_status: dict[str, Any] = {}
 
     try:
         # Initialize Google client
@@ -618,6 +623,40 @@ async def create_drive_folder_with_attachments(
             drive_folder_id,
         )
 
+        # Optionally update Wrike "Google Folder" custom field
+        if wrike_record_id and drive_folder_link:
+            try:
+                logger.info(
+                    "Updating Wrike record %s with Google Folder link", wrike_record_id
+                )
+                update_site_record(
+                    record_id=wrike_record_id,
+                    custom_fields=[
+                        {
+                            "id": WRIKE_CUSTOM_FIELDS["google_folder"],
+                            "value": drive_folder_link,
+                        }
+                    ],
+                )
+                logger.info("Wrike Google Folder field updated successfully")
+                wrike_update_status = {"status": "success"}
+            except Exception as wrike_err:
+                logger.error(
+                    "Failed to update Wrike Google Folder field: %s", wrike_err
+                )
+                wrike_update_status = {
+                    "status": "error",
+                    "message": str(wrike_err),
+                }
+        elif wrike_record_id and not drive_folder_link:
+            logger.warning(
+                "wrike_record_id provided but drive_folder_link is None; skipping Wrike update"
+            )
+            wrike_update_status = {
+                "status": "skipped",
+                "message": "No folder link available to write to Wrike",
+            }
+
         result = {
             "status": "success",
             "folder": {
@@ -627,6 +666,7 @@ async def create_drive_folder_with_attachments(
             },
             "attachments_uploaded": attachments_uploaded,
             "uploaded_files": uploaded_files,
+            "wrike_update": wrike_update_status,
             "message": f"Successfully uploaded {attachments_uploaded} attachments to Drive folder '{folder_name}'",
         }
 

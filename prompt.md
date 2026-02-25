@@ -89,6 +89,7 @@ For each email found:
    ```
 
 2. **Parse and extract these fields using LLM:**
+   - `brand` - school brand name from the email subject (e.g., "Alpha School", "Texas Sports Academy", "GT School", "NextGen", "Nova Academy"). If no brand is identifiable, default to "Alpha School"
    - `street_address` - street address only (no city/state/zip)
    - `city` - city name
    - `state` - two-letter state code (TX, CA, NY, etc.)
@@ -178,22 +179,23 @@ list_drive_folders(
 )
 ```
 
-If `folder_name="Alpha {street_address} {city}"` (or any other variation of the folder name) is already present in the returned `folders`, skip folder creation/upload for that email and continue to step 3.4.
+If `folder_name="{brand}, {city}, {street_address}"` (or any other variation of the folder name) is already present in the returned `folders`, skip folder creation/upload for that email and continue to step 3.4.
 
 If not present, create and upload:
 
 ```
 create_drive_folder_with_attachments(
   email_id=<original email id>,
-  folder_name="Alpha {street_address} {city}",
-  drive_parent_folder_id="1RqwLyx0duTeWQPJWu7-HOpfQNlbe5jzQ"
+  folder_name="{brand}, {city}, {street_address}",
+  drive_parent_folder_id="1RqwLyx0duTeWQPJWu7-HOpfQNlbe5jzQ",
+  wrike_record_id=<from step 3.1>
 )
 ```
 
 **This tool will:**
 
 - Download all attachments from the original email
-- Create a Google Drive folder with name: "Alpha {street_address} {city}"
+- Create a Google Drive folder with name: "{brand}, {city}, {street_address}"
 - Upload all attachments to that folder
 - Return folder link and uploaded file details
 
