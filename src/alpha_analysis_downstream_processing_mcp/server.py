@@ -61,6 +61,17 @@ mcp = FastMCP("alpha-analysis-downstream-processing-mcp")
 
 DATE_MM_DD_YYYY_REGEX = re.compile(r"^\d{2}/\d{2}/\d{4}$")
 
+# Standard subfolders created inside every new site Drive folder
+SITE_DRIVE_SUBFOLDERS: list[str] = [
+    "01_Due Diligence",
+    "02_Business Entity",
+    "03_Construction",
+    "04_Private School Registration",
+    "05_Vendors & Contracts",
+    "06_Operations",
+    "99_Working",
+]
+
 
 def _is_valid_mm_dd_yyyy(date_str: str) -> bool:
     """Validate date string in strict MM/DD/YYYY format."""
@@ -589,6 +600,26 @@ async def create_drive_folder_with_attachments(
         drive_folder_link = folder.get("webViewLink")
         logger.info("Created folder: %s (id: %s)", folder_name, drive_folder_id)
 
+        # Create standard subfolders
+        subfolders_created: list[dict[str, Any]] = []
+        due_diligence_folder_id: str | None = None
+        for subfolder_name in SITE_DRIVE_SUBFOLDERS:
+            logger.info("Creating subfolder: %s", subfolder_name)
+            subfolder = google_client.create_folder(
+                name=subfolder_name, parent_id=drive_folder_id
+            )
+            subfolder_id = subfolder.get("id")
+            subfolders_created.append(
+                {
+                    "name": subfolder_name,
+                    "id": subfolder_id,
+                    "link": subfolder.get("webViewLink"),
+                }
+            )
+            if subfolder_name == "01_Due Diligence":
+                due_diligence_folder_id = subfolder_id
+        logger.info("Created %d subfolders", len(subfolders_created))
+
         # Upload each attachment to the folder
         uploaded_files: list[dict[str, Any]] = []
         for attachment in attachments:
@@ -601,7 +632,7 @@ async def create_drive_folder_with_attachments(
                 file_name=filename,
                 file_data=file_data,
                 mime_type=mime_type,
-                parent_folder_id=drive_folder_id,
+                parent_folder_id=due_diligence_folder_id or drive_folder_id,
             )
             attachments_uploaded += 1
             uploaded_files.append(
@@ -664,6 +695,7 @@ async def create_drive_folder_with_attachments(
                 "name": folder_name,
                 "link": drive_folder_link,
             },
+            "subfolders": subfolders_created,
             "attachments_uploaded": attachments_uploaded,
             "uploaded_files": uploaded_files,
             "wrike_update": wrike_update_status,

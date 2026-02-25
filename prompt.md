@@ -196,8 +196,10 @@ create_drive_folder_with_attachments(
 
 - Download all attachments from the original email
 - Create a Google Drive folder with name: "{brand}, {city}, {street_address}"
-- Upload all attachments to that folder
-- Return folder link and uploaded file details
+- Create 7 standard subfolders: 01_Due Diligence, 02_Business Entity, 03_Construction,
+  04_Private School Registration, 05_Vendors & Contracts, 06_Operations, 99_Working
+- Upload all LOI attachments into the `01_Due Diligence` subfolder
+- Return folder link, subfolder list, and uploaded file details
 
 **Returns:** Folder ID, folder link, list of uploaded files
 
