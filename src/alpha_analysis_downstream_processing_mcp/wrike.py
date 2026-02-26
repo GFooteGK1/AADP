@@ -2,6 +2,7 @@
 
 import json
 import logging
+import math
 import os
 import re
 from dataclasses import dataclass
@@ -56,6 +57,61 @@ WRIKE_CUSTOM_FIELDS = {
 
 # Reverse mapping: ID -> name
 WRIKE_CUSTOM_FIELD_NAMES = {v: k for k, v in WRIKE_CUSTOM_FIELDS.items()}
+
+# US state geographic centroids (latitude, longitude) for proximity calculation
+US_STATE_CENTROIDS: dict[str, tuple[float, float]] = {
+    "AL": (32.806671, -86.791130),
+    "AK": (61.370716, -152.404419),
+    "AZ": (33.729759, -111.431221),
+    "AR": (34.969704, -92.373123),
+    "CA": (36.116203, -119.681564),
+    "CO": (39.059811, -105.311104),
+    "CT": (41.597782, -72.755371),
+    "DE": (39.318523, -75.507141),
+    "DC": (38.897438, -77.026817),
+    "FL": (27.766279, -81.686783),
+    "GA": (33.040619, -83.643074),
+    "HI": (21.094318, -157.498337),
+    "ID": (44.240459, -114.478828),
+    "IL": (40.349457, -88.986137),
+    "IN": (39.849426, -86.258278),
+    "IA": (42.011539, -93.210526),
+    "KS": (38.526600, -96.726486),
+    "KY": (37.668140, -84.670067),
+    "LA": (31.169960, -91.867805),
+    "ME": (44.693947, -69.381927),
+    "MD": (39.063946, -76.802101),
+    "MA": (42.230171, -71.530106),
+    "MI": (43.326618, -84.536095),
+    "MN": (45.694454, -93.900192),
+    "MS": (32.741646, -89.678696),
+    "MO": (38.456085, -92.288368),
+    "MT": (46.921925, -110.454353),
+    "NE": (41.125370, -98.268082),
+    "NV": (38.313515, -117.055374),
+    "NH": (43.452492, -71.563896),
+    "NJ": (40.298904, -74.521011),
+    "NM": (34.840515, -106.248482),
+    "NY": (42.165726, -74.948051),
+    "NC": (35.630066, -79.806419),
+    "ND": (47.528912, -99.784012),
+    "OH": (40.388783, -82.764915),
+    "OK": (35.565342, -96.928917),
+    "OR": (44.572021, -122.070938),
+    "PA": (40.590752, -77.209755),
+    "RI": (41.680893, -71.511780),
+    "SC": (33.856892, -80.945007),
+    "SD": (44.299782, -99.438828),
+    "TN": (35.747845, -86.692345),
+    "TX": (31.054487, -97.563461),
+    "UT": (40.150032, -111.862434),
+    "VT": (44.045876, -72.710686),
+    "VA": (37.769337, -78.169968),
+    "WA": (47.400902, -121.490494),
+    "WV": (38.491226, -80.954453),
+    "WI": (44.268543, -89.616508),
+    "WY": (42.755966, -107.302490),
+}
 
 # Required vendor team members to set during downstream processing
 # Monica Swannie -> RE5174381
@@ -213,6 +269,71 @@ def extract_school_type_from_record(record: dict[str, Any]) -> str | None:
                 return "1000"
 
     return None
+
+
+def _haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Calculate great-circle distance in km between two lat/lon points."""
+    R = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
+    )
+    return R * 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
+
+
+def extract_state_from_address(address: str) -> str | None:
+    """
+    Extract 2-letter US state code from a full address string.
+
+    Handles formats like "123 Main St, Austin, TX 78701" or "Austin, TX".
+    """
+    address_upper = address.upper().strip()
+    # Match ", ST ZIP" or ", ST" at end of string
+    match = re.search(r",\s*([A-Z]{2})(?:\s+\d{5}(?:-\d{4})?)?\s*$", address_upper)
+    if match:
+        state = match.group(1)
+        if state in US_STATE_CENTROIDS:
+            return state
+    return None
+
+
+def extract_p1_accountable_from_record(record: dict[str, Any]) -> list[str]:
+    """Extract P1 Accountable contact IDs from a Wrike record's custom fields."""
+    custom_fields = record.get("customFields", [])
+    if not isinstance(custom_fields, list):
+        return []
+
+    p1_field_id = WRIKE_CUSTOM_FIELDS["p1_accountable"]
+
+    for field in custom_fields:
+        if not isinstance(field, dict):
+            continue
+        if field.get("id") != p1_field_id:
+            continue
+        value = field.get("value")
+        if not value:
+            return []
+        if isinstance(value, list):
+            return [str(v) for v in value if v]
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                if isinstance(parsed, list):
+                    return [str(v) for v in parsed if v]
+                return [str(parsed)] if parsed else []
+            except (json.JSONDecodeError, ValueError):
+                return [value]
+
+    return []
+
+
+def _pick_contact_with_fewest_sites(
+    candidates: list[str], contact_total_sites: dict[str, int]
+) -> str:
+    """Pick the contact with the fewest total sites. Break ties alphabetically by ID."""
+    return min(candidates, key=lambda cid: (contact_total_sites.get(cid, 0), cid))
 
 
 def _get_all_folder_ids(*, access_token: str) -> list[str]:
@@ -388,6 +509,169 @@ def get_site_records_by_stage(
 
     logger.info("Found %d Site Records with stage '%s'", len(all_site_records), stage)
     return all_site_records
+
+
+def get_all_site_records(*, cfg: WrikeConfig | None = None) -> list[dict[str, Any]]:
+    """
+    Get all Site Records from the Wrike space regardless of stage.
+
+    Used for P1 Accountable assignment logic — we need to see all active work
+    across every stage to understand who is working which states.
+
+    Returns:
+        List of all Site Records
+    """
+    if cfg is None:
+        cfg = load_wrike_config()
+
+    folder_ids = _get_all_folder_ids(access_token=cfg.access_token)
+    logger.info("Fetching all Site Records (any stage) from %d folders", len(folder_ids))
+
+    batch_size = 100
+    all_site_records: list[dict[str, Any]] = []
+
+    for i in range(0, len(folder_ids), batch_size):
+        batch = folder_ids[i : i + batch_size]
+        ids_param = ",".join(batch)
+
+        url = f"{WRIKE_API_BASE_URL}/folders/{ids_param}"
+
+        resp = requests.get(
+            url,
+            headers=_wrike_headers(cfg.access_token),
+            params={"fields": '["customItemTypeId"]'},
+            timeout=WRIKE_TIMEOUT_SECONDS,
+        )
+        _raise_for_wrike_error(resp)
+
+        payload: dict[str, Any] = resp.json()
+        data = payload.get("data", [])
+
+        if not isinstance(data, list):
+            continue
+
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            if item.get("customItemTypeId") == WRIKE_SITE_RECORD_TYPE_ID:
+                all_site_records.append(item)
+
+    logger.info("Found %d total Site Records across all stages", len(all_site_records))
+    return all_site_records
+
+
+def assign_p1_accountable_for_new_site(
+    *, state: str, cfg: WrikeConfig | None = None
+) -> list[str]:
+    """
+    Determine which P1 Accountable contact to assign to a new site.
+
+    Assignment rules (in priority order):
+
+    1. If one or more P1 Accountable contacts are already working in the target
+       state, assign to the one with the fewest total sites overall.
+
+    2. If nobody is working in the target state (new state), find the P1
+       Accountable working in the geographically nearest state (by centroid
+       distance) and assign to the one with the fewest total sites overall.
+
+    3. If no P1 Accountable exists anywhere, return [].
+
+    Ties in total-site count are broken by contact ID (alphabetical order) so
+    the result is always deterministic.
+
+    Args:
+        state: Two-letter US state code for the new site (e.g. "TX")
+        cfg: Wrike config (loads from env if not provided)
+
+    Returns:
+        List containing the single assigned contact ID, or [] if none found.
+    """
+    state_upper = state.upper().strip()
+    logger.info("Assigning P1 Accountable for state: %s", state_upper)
+
+    all_records = get_all_site_records(cfg=cfg)
+
+    # Build lookup tables from existing records that already have a P1 Accountable
+    # state_contacts: state code -> set of contact IDs working there
+    # contact_total_sites: contact ID -> total site count across all states
+    state_contacts: dict[str, set[str]] = {}
+    contact_total_sites: dict[str, int] = {}
+
+    for record in all_records:
+        contact_ids = extract_p1_accountable_from_record(record)
+        if not contact_ids:
+            continue
+
+        address = extract_address_from_record(record)
+        if not address:
+            continue
+
+        record_state = extract_state_from_address(address)
+        if not record_state:
+            continue
+
+        if record_state not in state_contacts:
+            state_contacts[record_state] = set()
+
+        for cid in contact_ids:
+            state_contacts[record_state].add(cid)
+            contact_total_sites[cid] = contact_total_sites.get(cid, 0) + 1
+
+    if not contact_total_sites:
+        logger.warning("No P1 Accountable found in any existing site record; skipping assignment")
+        return []
+
+    # Rule 1: P1 Accountable already working the target state
+    if state_upper in state_contacts and state_contacts[state_upper]:
+        candidates = list(state_contacts[state_upper])
+        assigned = _pick_contact_with_fewest_sites(candidates, contact_total_sites)
+        logger.info(
+            "P1 assignment (Rule 1 – same state): state=%s, candidates=%s, assigned=%s "
+            "(total sites: %d)",
+            state_upper,
+            candidates,
+            assigned,
+            contact_total_sites.get(assigned, 0),
+        )
+        return [assigned]
+
+    # Rule 2: New state — find nearest state with a P1 Accountable
+    if state_upper not in US_STATE_CENTROIDS:
+        logger.warning("State '%s' not found in US_STATE_CENTROIDS; cannot find nearest", state_upper)
+        return []
+
+    target_lat, target_lon = US_STATE_CENTROIDS[state_upper]
+
+    nearest_state: str | None = None
+    nearest_distance = float("inf")
+
+    for existing_state, contacts in state_contacts.items():
+        if not contacts or existing_state not in US_STATE_CENTROIDS:
+            continue
+        lat, lon = US_STATE_CENTROIDS[existing_state]
+        dist = _haversine_distance(target_lat, target_lon, lat, lon)
+        if dist < nearest_distance:
+            nearest_distance = dist
+            nearest_state = existing_state
+
+    if nearest_state is None:
+        logger.warning("Could not find any state with a P1 Accountable to fall back to")
+        return []
+
+    candidates = list(state_contacts[nearest_state])
+    assigned = _pick_contact_with_fewest_sites(candidates, contact_total_sites)
+    logger.info(
+        "P1 assignment (Rule 2 – nearest state): target=%s, nearest=%s (%.0f km away), "
+        "candidates=%s, assigned=%s (total sites: %d)",
+        state_upper,
+        nearest_state,
+        nearest_distance,
+        candidates,
+        assigned,
+        contact_total_sites.get(assigned, 0),
+    )
+    return [assigned]
 
 
 def _match_address_with_llm(
@@ -803,6 +1087,7 @@ def update_site_record_with_location_data(
     contact_name: str | None = None,
     contact_email: str | None = None,
     contact_phone: str | None = None,
+    p1_accountable: list[str] | None = None,
     cfg: WrikeConfig | None = None,
 ) -> dict[str, Any]:
     """
@@ -821,6 +1106,7 @@ def update_site_record_with_location_data(
         contact_name: Site POC name
         contact_email: Site POC email
         contact_phone: Site POC phone
+        p1_accountable: List of Wrike contact IDs to assign as P1 Accountable
         cfg: Wrike config (loads from env if not provided)
 
     Returns:
@@ -885,6 +1171,13 @@ def update_site_record_with_location_data(
         "Adding vendor_team update to custom fields: ids=%s",
         WRIKE_REQUIRED_VENDOR_TEAM_IDS,
     )
+
+    # P1 Accountable (Contacts): set when an assignment was determined
+    if p1_accountable:
+        fields.append(
+            {"id": WRIKE_CUSTOM_FIELDS["p1_accountable"], "value": json.dumps(p1_accountable)}
+        )
+        logger.info("Adding p1_accountable update to custom fields: %s", p1_accountable)
 
     # Build the Real Estate section with actual values
     real_estate_section = (

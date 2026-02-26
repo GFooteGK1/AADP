@@ -32,6 +32,7 @@ from .utils import (
 )
 from .wrike import (
     WRIKE_CUSTOM_FIELDS,
+    assign_p1_accountable_for_new_site,
     enrich_custom_fields_with_names,
     extract_address_from_record,
     extract_school_type_from_record,
@@ -200,8 +201,20 @@ async def update_wrike_site_record(
         record_permalink,
     )
 
-    # Step 3: Update Site Record (stage + location data in one API call)
-    logger.info("Updating Site Record with stage and location data...")
+    # Step 3: Determine P1 Accountable assignment based on state
+    logger.info("Determining P1 Accountable assignment for state: %s", state)
+    p1_contact_ids: list[str] = []
+    try:
+        p1_contact_ids = assign_p1_accountable_for_new_site(state=state)
+        if p1_contact_ids:
+            logger.info("P1 Accountable assigned: %s", p1_contact_ids)
+        else:
+            logger.warning("No P1 Accountable could be determined for state: %s", state)
+    except Exception as e:
+        logger.error("Failed to determine P1 Accountable: %s", e)
+
+    # Step 4: Update Site Record (stage + location data + P1 Accountable in one API call)
+    logger.info("Updating Site Record with stage, location data, and P1 Accountable...")
     update_successful = False
 
     try:
@@ -215,14 +228,15 @@ async def update_wrike_site_record(
             contact_name=contact_name,
             contact_email=contact_email,
             contact_phone=contact_phone,
+            p1_accountable=p1_contact_ids if p1_contact_ids else None,
         )
-        logger.info("Successfully updated Site Record (stage + location data)")
+        logger.info("Successfully updated Site Record (stage + location data + P1 Accountable)")
         update_successful = True
     except Exception as e:
         logger.error("Failed to update Site Record: %s", e)
         update_successful = False
 
-    # Step 4: Return result
+    # Step 5: Return result
     result = {
         "status": "success",
         "matched_record": {
@@ -230,8 +244,9 @@ async def update_wrike_site_record(
             "title": record_title,
             "permalink": record_permalink,
         },
+        "p1_accountable_assigned": p1_contact_ids,
         "update_successful": update_successful,
-        "message": f"{'Successfully' if update_successful else 'Failed to'} updated Wrike Site Record for {full_address} (stage + location data).",
+        "message": f"{'Successfully' if update_successful else 'Failed to'} updated Wrike Site Record for {full_address} (stage + location data + P1 Accountable).",
     }
 
     logger.info("update_wrike_site_record result: %s", result)
