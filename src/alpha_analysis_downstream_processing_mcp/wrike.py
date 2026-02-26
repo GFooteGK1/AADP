@@ -1162,6 +1162,40 @@ def update_site_record_with_location_data(
     current_record = get_site_record_by_id(record_id=record_id, cfg=cfg)
     current_description = current_record.get("description", "")
 
+    # School Type: infer from square footage only when not already set on the record
+    # Ranges: Micro = 2,500–20,000 | Growth = 20,001–50,000 | Flagship = 50,001–150,000
+    existing_school_type = extract_school_type_from_record(current_record)
+    if not existing_school_type and square_footage is not None:
+        try:
+            sq_ft_infer = float(square_footage.replace(",", "").strip())
+            inferred_school_type: str | None = None
+            if 2500 <= sq_ft_infer <= 20000:
+                inferred_school_type = "Microschool 25"
+            elif 20001 <= sq_ft_infer <= 50000:
+                inferred_school_type = "Growth 250"
+            elif 50001 <= sq_ft_infer <= 150000:
+                inferred_school_type = "Flagship 1000"
+
+            if inferred_school_type:
+                fields.append(
+                    {"id": WRIKE_CUSTOM_FIELDS["school_type"], "value": inferred_school_type}
+                )
+                logger.info(
+                    "Inferred school_type from square footage (%.0f sq ft): %s",
+                    sq_ft_infer,
+                    inferred_school_type,
+                )
+            else:
+                logger.warning(
+                    "Square footage %.0f sq ft outside all school type ranges (2500–150000); "
+                    "school_type not set",
+                    sq_ft_infer,
+                )
+        except ValueError:
+            logger.warning(
+                "Could not parse square_footage for school type inference: %s", square_footage
+            )
+
     # Vendor Team (LinkToDatabase): always set to the required two IDs
     vendor_team_value = json.dumps(WRIKE_REQUIRED_VENDOR_TEAM_IDS)
     fields.append(
