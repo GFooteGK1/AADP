@@ -1,14 +1,15 @@
 # Alpha Analysis Downstream Processing — Roadmap
 
-## Status as of 2026-02-27
+## Status as of 2026-03-02
 
 ### What Is Working (Confirmed)
 
 - **Google Drive folder creation** — Folder named `{brand}, {city}, {street_address}` is created correctly under the fixed parent folder
-- **Standard subfolders** — All 7 subfolders are created inside each new site folder
+- **Standard subfolders** — All 7 milestone-based subfolders (M1–M6 + Working) are created inside each new site folder
 - **LOI attachment routing** — Email attachments are uploaded to `M1 - Acquire Property`
 - **Wrike "Google Folder" field** — Updated with the Drive folder link after creation (`google_folder` custom field `IEAGN6I6JUAJK2MQ`)
-- **Wrike Assignee (`responsibleIds`)** — Now set to the same contact(s) as P1 Accountable
+- **Wrike Assignee (`responsibleIds`)** — Set to the same contact(s) as P1 Accountable
+- **P1 Accountable custom field** — Auto-assigned based on state and workload
 
 ---
 
@@ -27,11 +28,17 @@ The auto-assignment logic exists (`assign_p1_accountable_for_new_site()` in `wri
 
 ---
 
-## Completed Items (this session)
+## Completed Items
 
-- [x] Added `responsibleIds` support to `update_site_record()` — the Wrike Assignee field is now set to the same person as P1 Accountable
+- [x] Google Drive folder creation under fixed parent folder
+- [x] Standard subfolder creation (originally numbered, updated to milestone-based)
+- [x] LOI attachment routing to `M1 - Acquire Property`
+- [x] Wrike "Google Folder" custom field update
+- [x] P1 Accountable auto-assignment logic (`assign_p1_accountable_for_new_site()`)
+- [x] Added `responsibleIds` support — Wrike Assignee now set to same person as P1 Accountable
 - [x] Updated subfolder names to milestone-based names (M1–M6 + Working)
-- [x] Updated LOI attachment upload target to `M1 - Acquire Property`
+- [x] Updated `FRAMEWORK.md` to match new subfolder structure
+- [x] Deployed to MCP Hive (2026-03-02, commit `a8d1288`)
 
 ---
 
