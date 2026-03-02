@@ -64,13 +64,13 @@ DATE_MM_DD_YYYY_REGEX = re.compile(r"^\d{2}/\d{2}/\d{4}$")
 
 # Standard subfolders created inside every new site Drive folder
 SITE_DRIVE_SUBFOLDERS: list[str] = [
-    "01_Due Diligence",
-    "02_Business Entity",
-    "03_Construction",
-    "04_Private School Registration",
-    "05_Vendors & Contracts",
-    "06_Operations",
-    "99_Working",
+    "M1 - Acquire Property",
+    "M2 - Construction Permits",
+    "M3 - Construction Schedule",
+    "M4 - Education Regulatory",
+    "M5 - Certificate of Occupancy",
+    "M6 - Ready to Open",
+    "Working",
 ]
 
 
@@ -229,6 +229,7 @@ async def update_wrike_site_record(
             contact_email=contact_email,
             contact_phone=contact_phone,
             p1_accountable=p1_contact_ids if p1_contact_ids else None,
+            responsible_ids=p1_contact_ids if p1_contact_ids else None,
         )
         logger.info("Successfully updated Site Record (stage + location data + P1 Accountable)")
         update_successful = True
@@ -631,7 +632,7 @@ async def create_drive_folder_with_attachments(
                     "link": subfolder.get("webViewLink"),
                 }
             )
-            if subfolder_name == "01_Due Diligence":
+            if subfolder_name == "M1 - Acquire Property":
                 due_diligence_folder_id = subfolder_id
         logger.info("Created %d subfolders", len(subfolders_created))
 

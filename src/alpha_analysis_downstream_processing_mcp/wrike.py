@@ -1013,6 +1013,7 @@ def update_site_record(
     record_id: str,
     custom_fields: list[dict[str, Any]] | None = None,
     description: str | None = None,
+    responsible_ids: list[str] | None = None,
     cfg: WrikeConfig | None = None,
 ) -> dict[str, Any]:
     """
@@ -1024,6 +1025,7 @@ def update_site_record(
         record_id: Wrike folder/project ID
         custom_fields: List of custom field updates [{"id": "...", "value": "..."}]
         description: Updated description (optional)
+        responsible_ids: List of Wrike user IDs to set as task Assignees (responsibleIds)
         cfg: Wrike config (loads from env if not provided)
 
     Returns:
@@ -1042,13 +1044,17 @@ def update_site_record(
     if description is not None:
         body["description"] = description
 
+    if responsible_ids:
+        body["responsibleIds"] = responsible_ids
+
     if not body:
-        raise WrikeError("No updates provided (custom_fields or description required)")
+        raise WrikeError("No updates provided (custom_fields, description, or responsible_ids required)")
 
     logger.info(
-        "Updating site record %s with %d custom fields",
+        "Updating site record %s with %d custom fields, responsible_ids=%s",
         record_id,
         len(custom_fields or []),
+        responsible_ids,
     )
     # logger.info("Request URL: %s", url)
     # logger.info("Request body: %s", json.dumps(body, indent=2))
@@ -1088,6 +1094,7 @@ def update_site_record_with_location_data(
     contact_email: str | None = None,
     contact_phone: str | None = None,
     p1_accountable: list[str] | None = None,
+    responsible_ids: list[str] | None = None,
     cfg: WrikeConfig | None = None,
 ) -> dict[str, Any]:
     """
@@ -1106,7 +1113,8 @@ def update_site_record_with_location_data(
         contact_name: Site POC name
         contact_email: Site POC email
         contact_phone: Site POC phone
-        p1_accountable: List of Wrike contact IDs to assign as P1 Accountable
+        p1_accountable: List of Wrike contact IDs to assign as P1 Accountable custom field
+        responsible_ids: List of Wrike user IDs to set as task Assignees (responsibleIds)
         cfg: Wrike config (loads from env if not provided)
 
     Returns:
@@ -1229,5 +1237,6 @@ def update_site_record_with_location_data(
         record_id=record_id,
         custom_fields=fields if fields else None,
         description=updated_description,
+        responsible_ids=responsible_ids if responsible_ids else None,
         cfg=cfg,
     )
