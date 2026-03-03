@@ -93,7 +93,6 @@ async def update_wrike_site_record(
     city: str,
     state: str,
     zip_code: str,
-    loi_signed_date: str,
     contact_name: str,
     contact_email: str,
     contact_phone: str,
@@ -101,6 +100,7 @@ async def update_wrike_site_record(
     complete_building: str,
     move_in_ready: str,
     current_space_usage: str,
+    loi_signed_date: str = "",
 ) -> dict[str, Any]:
     """Update a Wrike Site Record with location data from parsed email.
 
@@ -114,7 +114,6 @@ async def update_wrike_site_record(
         city: City name
         state: Two-letter state code
         zip_code: 5-digit zip code
-        loi_signed_date: LOI signed date in MM/DD/YYYY format
         contact_name: Full name of site POC
         contact_email: Email address of site POC
         contact_phone: Phone number in (XXX) XXX-XXXX format
@@ -122,6 +121,7 @@ async def update_wrike_site_record(
         complete_building: Whether taking the complete building (yes/no)
         move_in_ready: Whether the space is move-in ready (yes/no)
         current_space_usage: What the space is currently used for
+        loi_signed_date: LOI signed date in MM/DD/YYYY format (optional; pass "" for no-LOI sites)
 
     Returns:
         Dict containing matched record info and update status
@@ -147,7 +147,7 @@ async def update_wrike_site_record(
 
     # Validate LOI signed date format before making Wrike calls
     logger.info("Validating loi_signed_date format: %s", loi_signed_date)
-    if not _is_valid_mm_dd_yyyy(loi_signed_date):
+    if loi_signed_date and not _is_valid_mm_dd_yyyy(loi_signed_date):
         logger.error(
             "Invalid loi_signed_date format received: %s (expected MM/DD/YYYY)",
             loi_signed_date,
@@ -160,6 +160,9 @@ async def update_wrike_site_record(
             "received_value": loi_signed_date,
             "message": "loi_signed_date must match MM/DD/YYYY (for example, 12/25/2026)",
         }
+
+    if not loi_signed_date:
+        logger.info("No LOI signed date provided — treating as no-LOI site")
 
     # Step 1: Construct full address for matching
     full_address = f"{street_address}, {city}, {state} {zip_code}"
@@ -220,7 +223,7 @@ async def update_wrike_site_record(
     try:
         update_site_record_with_location_data(
             record_id=record_id,
-            loi_signed_date=loi_signed_date,
+            loi_signed_date=loi_signed_date or None,
             square_footage=square_footage,
             complete_building=complete_building,
             move_in_ready=move_in_ready,
@@ -595,12 +598,7 @@ async def create_drive_folder_with_attachments(
         logger.info("Found %d attachments", len(attachments))
 
         if not attachments:
-            logger.warning("No attachments found in email %s", email_id)
-            return {
-                "status": "error",
-                "error": "No attachments found",
-                "message": f"Email {email_id} has no attachments",
-            }
+            logger.info("No attachments found in email %s — proceeding with folder creation only", email_id)
 
         # Create folder in Drive
         logger.info(
@@ -636,9 +634,9 @@ async def create_drive_folder_with_attachments(
                 due_diligence_folder_id = subfolder_id
         logger.info("Created %d subfolders", len(subfolders_created))
 
-        # Upload each attachment to the folder
+        # Upload each attachment to the folder (skip if no attachments)
         uploaded_files: list[dict[str, Any]] = []
-        for attachment in attachments:
+        for attachment in attachments or []:
             filename = attachment["filename"]
             file_data = attachment["data"]
             mime_type = attachment["mimeType"]
