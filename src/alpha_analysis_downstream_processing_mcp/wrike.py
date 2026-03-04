@@ -119,6 +119,13 @@ US_STATE_CENTROIDS: dict[str, tuple[float, float]] = {
 # Shinpei Kuo -> RE5174384
 WRIKE_REQUIRED_VENDOR_TEAM_IDS: list[str] = ["RE5174381", "RE5174384"]
 
+# P1 Accountable contact pools by school type
+# Growth (250) / Flagship (1000): Thomas Barrow, Israe Zizaoui
+# Microschool (micro): Devin Bates, Robbie Forrest, Andrea Ewalefo
+# JC Fisher: excluded from all assignments (returns [])
+_P1_GROWTH_FLAGSHIP_CONTACTS: set[str] = {"KUAWCQTS", "KUAWVGG4"}
+_P1_MICROSCHOOL_CONTACTS: set[str] = {"KUAWS3KA", "KUAUVTLM", "KUAWDEOX"}
+
 
 @dataclass(frozen=True)
 class WrikeConfig:
@@ -268,6 +275,8 @@ def extract_school_type_from_record(record: dict[str, Any]) -> str | None:
                 return "250"
             elif "Flagship 1000" in value or value == "1000":
                 return "1000"
+            elif "JC Fisher" in value:
+                return "jc_fisher"
 
     return None
 
@@ -567,8 +576,29 @@ def get_all_site_records(*, cfg: WrikeConfig | None = None) -> list[dict[str, An
     return all_site_records
 
 
+def _eligible_contacts_for_school_type(
+    school_type: str | None,
+) -> set[str] | None:
+    """Return the set of eligible P1 contact IDs for a school type.
+
+    Returns None when ALL contacts (from any pool) are eligible (unknown type).
+    Returns an empty set for JC Fisher (no assignment allowed).
+    """
+    if school_type in ("250", "1000"):
+        return _P1_GROWTH_FLAGSHIP_CONTACTS
+    if school_type == "micro":
+        return _P1_MICROSCHOOL_CONTACTS
+    if school_type == "jc_fisher":
+        return set()
+    # Unknown / None → all pooled contacts are eligible
+    return _P1_GROWTH_FLAGSHIP_CONTACTS | _P1_MICROSCHOOL_CONTACTS
+
+
 def assign_p1_accountable_for_new_site(
-    *, state: str, cfg: WrikeConfig | None = None
+    *,
+    state: str,
+    school_type: str | None = None,
+    cfg: WrikeConfig | None = None,
 ) -> list[str]:
     """
     Determine which P1 Accountable contact to assign to a new site.
@@ -584,18 +614,37 @@ def assign_p1_accountable_for_new_site(
 
     3. If no P1 Accountable exists anywhere, return [].
 
+    Contact pools are restricted by school type:
+    - Growth (250) / Flagship (1000): Thomas Barrow, Israe Zizaoui
+    - Microschool (micro): Devin Bates, Robbie Forrest, Andrea Ewalefo
+    - JC Fisher: excluded from all assignments (returns [])
+
     Ties in total-site count are broken by contact ID (alphabetical order) so
     the result is always deterministic.
 
     Args:
         state: Two-letter US state code for the new site (e.g. "TX")
+        school_type: Internal school type ("250", "1000", "micro", "jc_fisher")
         cfg: Wrike config (loads from env if not provided)
 
     Returns:
         List containing the single assigned contact ID, or [] if none found.
     """
     state_upper = state.upper().strip()
-    logger.info("Assigning P1 Accountable for state: %s", state_upper)
+    logger.info(
+        "Assigning P1 Accountable for state: %s, school_type: %s",
+        state_upper,
+        school_type,
+    )
+
+    # Determine eligible contacts based on school type
+    eligible = _eligible_contacts_for_school_type(school_type)
+    if eligible is not None and not eligible:
+        logger.info(
+            "School type '%s' is excluded from P1 assignment; returning []",
+            school_type,
+        )
+        return []
 
     all_records = get_all_site_records(cfg=cfg)
 
@@ -622,12 +671,17 @@ def assign_p1_accountable_for_new_site(
             state_contacts[record_state] = set()
 
         for cid in contact_ids:
+            # Only count contacts that are in the eligible pool
+            if eligible is not None and cid not in eligible:
+                continue
             state_contacts[record_state].add(cid)
             contact_total_sites[cid] = contact_total_sites.get(cid, 0) + 1
 
     if not contact_total_sites:
         logger.warning(
-            "No P1 Accountable found in any existing site record; skipping assignment"
+            "No eligible P1 Accountable found in any existing site record; "
+            "skipping assignment (school_type=%s)",
+            school_type,
         )
         return []
 

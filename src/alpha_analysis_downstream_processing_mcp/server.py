@@ -204,11 +204,37 @@ async def update_wrike_site_record(
         record_permalink,
     )
 
-    # Step 3: Determine P1 Accountable assignment based on state
-    logger.info("Determining P1 Accountable assignment for state: %s", state)
+    # Step 3: Determine P1 Accountable assignment based on state + school type
+    school_type = extract_school_type_from_record(matched_record)
+    if not school_type and square_footage:
+        try:
+            sq_ft = float(square_footage.replace(",", "").strip())
+            if sq_ft <= 20000:
+                school_type = "micro"
+            elif sq_ft <= 50000:
+                school_type = "250"
+            else:
+                school_type = "1000"
+            logger.info(
+                "Inferred school_type from square_footage (%.0f): %s",
+                sq_ft,
+                school_type,
+            )
+        except ValueError:
+            logger.warning(
+                "Could not parse square_footage for school type inference: %s",
+                square_footage,
+            )
+    logger.info(
+        "Determining P1 Accountable assignment for state: %s, school_type: %s",
+        state,
+        school_type,
+    )
     p1_contact_ids: list[str] = []
     try:
-        p1_contact_ids = assign_p1_accountable_for_new_site(state=state)
+        p1_contact_ids = assign_p1_accountable_for_new_site(
+            state=state, school_type=school_type
+        )
         if p1_contact_ids:
             logger.info("P1 Accountable assigned: %s", p1_contact_ids)
         else:
