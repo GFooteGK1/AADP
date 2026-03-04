@@ -6,6 +6,7 @@ import math
 import os
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 import requests
@@ -324,9 +325,11 @@ def extract_p1_accountable_from_record(record: dict[str, Any]) -> list[str]:
                 parsed = json.loads(value)
                 if isinstance(parsed, list):
                     return [str(v) for v in parsed if v]
+                if isinstance(parsed, str):
+                    return [part.strip() for part in parsed.split(",") if part.strip()]
                 return [str(parsed)] if parsed else []
             except (json.JSONDecodeError, ValueError):
-                return [value]
+                return [part.strip() for part in value.split(",") if part.strip()]
 
     return []
 
@@ -1051,21 +1054,6 @@ def update_site_record(
 
     if custom_fields:
         body["customFields"] = custom_fields
-        logger.info(
-            "Prepared customFields for %s: %s",
-            record_id,
-            [
-                {
-                    "id": field.get("id"),
-                    "name": WRIKE_CUSTOM_FIELD_NAMES.get(
-                        str(field.get("id")), "unknown"
-                    ),
-                    "value_type": type(field.get("value")).__name__,
-                }
-                for field in custom_fields
-                if isinstance(field, dict)
-            ],
-        )
 
     if description is not None:
         body["description"] = description
@@ -1125,46 +1113,34 @@ def update_site_record(
         len(custom_fields or []),
         responsible_ids,
     )
-    # logger.info("Request URL: %s", url)
-    # logger.info("Request body: %s", json.dumps(body, indent=2))
 
-    # Wrike Modify Folder expects form parameters; complex values (arrays/objects)
-    # must be JSON-encoded strings (as shown in Wrike's own API examples).
-    request_data: dict[str, str] = {}
-    for key, value in body.items():
-        if isinstance(value, (list, dict)):
-            request_data[key] = json.dumps(value)
-        elif isinstance(value, bool):
-            request_data[key] = "true" if value else "false"
-        else:
-            request_data[key] = str(value)
+    def _send_update(update_body: dict[str, Any]) -> dict[str, Any]:
+        # Wrike Modify Folder expects form parameters; complex values
+        # (arrays/objects) must be JSON-encoded strings.
+        request_data: dict[str, str] = {}
+        for key, value in update_body.items():
+            if isinstance(value, (list, dict)):
+                request_data[key] = json.dumps(value)
+            elif isinstance(value, bool):
+                request_data[key] = "true" if value else "false"
+            else:
+                request_data[key] = str(value)
 
-    logger.info(
-        "Wrike update payload keys for %s: %s", record_id, list(request_data.keys())
-    )
-    if "customFields" in request_data:
-        logger.info(
-            "Wrike customFields payload for %s: %s",
-            record_id,
-            request_data["customFields"],
+        resp = requests.put(
+            url,
+            headers=_wrike_headers(cfg.access_token),
+            data=request_data,
+            timeout=WRIKE_TIMEOUT_SECONDS,
         )
+        _raise_for_wrike_error(resp)
 
-    resp = requests.put(
-        url,
-        headers=_wrike_headers(cfg.access_token),
-        data=request_data,
-        timeout=WRIKE_TIMEOUT_SECONDS,
-    )
-    _raise_for_wrike_error(resp)
+        payload: dict[str, Any] = resp.json()
+        data = payload.get("data", [])
+        if not data:
+            raise WrikeError(f"Site record update returned no data: {record_id}")
+        return data[0]
 
-    payload: dict[str, Any] = resp.json()
-    # logger.info("Payload: %s", json.dumps(payload, indent=2))
-    data = payload.get("data", [])
-
-    if not data:
-        raise WrikeError(f"Site record update returned no data: {record_id}")
-
-    updated_record = data[0]
+    updated_record = _send_update(body)
     logger.info("Site record updated: %s", updated_record.get("title"))
     return updated_record
 
@@ -1223,19 +1199,34 @@ def update_site_record_with_location_data(
     )
     logger.info("Adding overall_site_stage update to custom fields")
 
-    # LOI signed date (date field)
+    # LOI signed date (date field) - Wrike expects YYYY-MM-DD
     if loi_signed_date is not None:
         loi_signed_date_clean = loi_signed_date.strip()
         if loi_signed_date_clean:
+            loi_signed_date_wrike = loi_signed_date_clean
+            try:
+                loi_signed_date_wrike = datetime.strptime(
+                    loi_signed_date_clean, "%m/%d/%Y"
+                ).strftime("%Y-%m-%d")
+                logger.info(
+                    "Normalized loi_signed_date for Wrike: input=%s output=%s",
+                    loi_signed_date_clean,
+                    loi_signed_date_wrike,
+                )
+            except ValueError:
+                logger.warning(
+                    "Could not normalize loi_signed_date '%s' from MM/DD/YYYY to YYYY-MM-DD; sending raw value",
+                    loi_signed_date_clean,
+                )
             fields.append(
                 {
                     "id": WRIKE_CUSTOM_FIELDS["loi_signed_date"],
-                    "value": loi_signed_date_clean,
+                    "value": loi_signed_date_wrike,
                 }
             )
             logger.info(
                 "Adding loi_signed_date update to custom fields: %s",
-                loi_signed_date_clean,
+                loi_signed_date_wrike,
             )
         else:
             logger.warning(
@@ -1248,8 +1239,17 @@ def update_site_record_with_location_data(
             # Parse as float, handle common formats
             sq_ft_clean = square_footage.replace(",", "").strip()
             sq_ft_value = float(sq_ft_clean)
+            # Wrike customFields values are safest when sent as strings.
+            sq_ft_value_str = (
+                str(int(sq_ft_value)) if sq_ft_value.is_integer() else str(sq_ft_value)
+            )
             fields.append(
-                {"id": WRIKE_CUSTOM_FIELDS["square_footage"], "value": sq_ft_value}
+                {"id": WRIKE_CUSTOM_FIELDS["square_footage"], "value": sq_ft_value_str}
+            )
+            logger.info(
+                "Adding square_footage update to custom fields: input=%s normalized=%s",
+                square_footage,
+                sq_ft_value_str,
             )
         except ValueError:
             logger.warning("Could not parse square_footage: %s", square_footage)
@@ -1289,10 +1289,8 @@ def update_site_record_with_location_data(
                 square_footage,
             )
 
-    # Vendor Team (LinkToDatabase): always set to the required two IDs.
-    # Keep this as a native list; update_site_record will JSON-encode the
-    # whole customFields payload once for Wrike form submission.
-    vendor_team_value = list(WRIKE_REQUIRED_VENDOR_TEAM_IDS)
+    # Vendor Team (LinkToDatabase): always set to the required two IDs
+    vendor_team_value = json.dumps(WRIKE_REQUIRED_VENDOR_TEAM_IDS)
     fields.append(
         {"id": WRIKE_CUSTOM_FIELDS["vendor_team"], "value": vendor_team_value}
     )
@@ -1301,13 +1299,13 @@ def update_site_record_with_location_data(
         WRIKE_REQUIRED_VENDOR_TEAM_IDS,
     )
 
-    # P1 Accountable (Contacts): set when an assignment was determined.
-    # Keep this as a native list to avoid double-encoding.
+    # P1 Accountable (Contacts): set when an assignment was determined
     if p1_accountable:
         fields.append(
             {
                 "id": WRIKE_CUSTOM_FIELDS["p1_accountable"],
-                "value": list(dict.fromkeys(p1_accountable)),
+                # Contacts custom field expects comma-delimited contact IDs.
+                "value": ",".join([cid.strip() for cid in p1_accountable if cid.strip()]),
             }
         )
         logger.info("Adding p1_accountable update to custom fields: %s", p1_accountable)
