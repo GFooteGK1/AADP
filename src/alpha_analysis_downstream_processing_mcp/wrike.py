@@ -1051,6 +1051,19 @@ def update_site_record(
 
     if custom_fields:
         body["customFields"] = custom_fields
+        logger.info(
+            "Prepared customFields for %s: %s",
+            record_id,
+            [
+                {
+                    "id": field.get("id"),
+                    "name": WRIKE_CUSTOM_FIELD_NAMES.get(str(field.get("id")), "unknown"),
+                    "value_type": type(field.get("value")).__name__,
+                }
+                for field in custom_fields
+                if isinstance(field, dict)
+            ],
+        )
 
     if description is not None:
         body["description"] = description
@@ -1109,13 +1122,23 @@ def update_site_record(
     # logger.info("Request URL: %s", url)
     # logger.info("Request body: %s", json.dumps(body, indent=2))
 
+    # Wrike Modify Folder expects form parameters; complex values (arrays/objects)
+    # must be JSON-encoded strings (as shown in Wrike's own API examples).
+    request_data: dict[str, str] = {}
+    for key, value in body.items():
+        if isinstance(value, (list, dict)):
+            request_data[key] = json.dumps(value)
+        elif isinstance(value, bool):
+            request_data[key] = "true" if value else "false"
+        else:
+            request_data[key] = str(value)
+
+    logger.info("Wrike update payload keys for %s: %s", record_id, list(request_data.keys()))
+
     resp = requests.put(
         url,
-        headers={
-            **_wrike_headers(cfg.access_token),
-            "Content-Type": "application/json",
-        },
-        json=body,
+        headers=_wrike_headers(cfg.access_token),
+        data=request_data,
         timeout=WRIKE_TIMEOUT_SECONDS,
     )
     _raise_for_wrike_error(resp)
