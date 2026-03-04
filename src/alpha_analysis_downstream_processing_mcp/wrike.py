@@ -1034,8 +1034,9 @@ def update_site_record(
         record_id: Wrike folder/project ID
         custom_fields: List of custom field updates [{"id": "...", "value": "..."}]
         description: Updated description (optional)
-        responsible_ids: Target Wrike user IDs for Site Record default assignee(s),
-            mapped to project owner IDs and overwritten directly.
+        responsible_ids: Target Wrike user IDs for Site Record default assignee(s).
+            Wrike folders/projects do not support ownerIds overwrite directly, so
+            this is applied as overwrite semantics via project.ownersAdd/ownersRemove.
         cfg: Wrike config (loads from env if not provided)
 
     Returns:
@@ -1054,14 +1055,45 @@ def update_site_record(
     if description is not None:
         body["description"] = description
 
+    current_record_for_noop: dict[str, Any] | None = None
     if responsible_ids is not None:
-        owner_ids = list(dict.fromkeys(responsible_ids))
-        body["ownerIds"] = owner_ids
-        logger.info(
-            "Overwriting Site Record owners for %s with ownerIds=%s",
-            record_id,
-            owner_ids,
+        target_owner_ids = list(dict.fromkeys(responsible_ids))
+        current_record = get_site_record_by_id(record_id=record_id, cfg=cfg)
+        current_record_for_noop = current_record
+        current_owner_ids = (
+            current_record.get("project", {}).get("ownerIds")
+            or current_record.get("ownerIds")
+            or []
         )
+        if not isinstance(current_owner_ids, list):
+            current_owner_ids = []
+
+        owners_to_add = [oid for oid in target_owner_ids if oid not in current_owner_ids]
+        owners_to_remove = [oid for oid in current_owner_ids if oid not in target_owner_ids]
+
+        project_updates: dict[str, Any] = {}
+        if owners_to_add:
+            project_updates["ownersAdd"] = owners_to_add
+        if owners_to_remove:
+            project_updates["ownersRemove"] = owners_to_remove
+        if project_updates:
+            body["project"] = project_updates
+
+        logger.info(
+            "Overwriting Site Record owners for %s via project owner deltas: current=%s target=%s add=%s remove=%s",
+            record_id,
+            current_owner_ids,
+            target_owner_ids,
+            owners_to_add,
+            owners_to_remove,
+        )
+
+    if not body and current_record_for_noop is not None:
+        logger.info(
+            "No Site Record update call required for %s; owners already in target state",
+            record_id,
+        )
+        return current_record_for_noop
 
     if not body:
         raise WrikeError(
