@@ -1,6 +1,6 @@
 # Alpha Analysis Downstream Processing — Roadmap
 
-## Status as of 2026-03-02
+## Status as of 2026-03-03
 
 ### What Is Working (Confirmed)
 
@@ -10,6 +10,7 @@
 - **Wrike "Google Folder" field** — Updated with the Drive folder link after creation (`google_folder` custom field `IEAGN6I6JUAJK2MQ`)
 - **Wrike Assignee (`responsibleIds`)** — Set to the same contact(s) as P1 Accountable
 - **P1 Accountable custom field** — Auto-assigned based on state and workload
+- **No-LOI site support** — Full downstream flow (Wrike update, notification, Drive folder, presentation) runs for every "New Site" email, even when no LOI is provided
 
 ---
 
@@ -39,6 +40,10 @@ The auto-assignment logic exists (`assign_p1_accountable_for_new_site()` in `wri
 - [x] Updated subfolder names to milestone-based names (M1–M6 + Working)
 - [x] Updated `FRAMEWORK.md` to match new subfolder structure
 - [x] Deployed to MCP Hive (2026-03-02, commit `a8d1288`)
+- [x] No-LOI site support (2026-03-03, commit `7eb25e7`):
+  - `loi_signed_date` made optional (default `""`) in `update_wrike_site_record` — skips date validation when empty, passes `None` downstream
+  - `create_drive_folder_with_attachments` no longer errors on zero attachments — folder + subfolders always created
+  - `prompt.md` updated: mission broadened to all "New Site" emails, added `no_loi` boolean extraction, updated tool descriptions, error handling, expected success rates, and success checklist
 
 ---
 
