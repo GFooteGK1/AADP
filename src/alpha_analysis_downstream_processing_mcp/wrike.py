@@ -278,7 +278,9 @@ def _haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> f
     dlon = math.radians(lon2 - lon1)
     a = (
         math.sin(dlat / 2) ** 2
-        + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
+        + math.cos(math.radians(lat1))
+        * math.cos(math.radians(lat2))
+        * math.sin(dlon / 2) ** 2
     )
     return R * 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
 
@@ -525,7 +527,9 @@ def get_all_site_records(*, cfg: WrikeConfig | None = None) -> list[dict[str, An
         cfg = load_wrike_config()
 
     folder_ids = _get_all_folder_ids(access_token=cfg.access_token)
-    logger.info("Fetching all Site Records (any stage) from %d folders", len(folder_ids))
+    logger.info(
+        "Fetching all Site Records (any stage) from %d folders", len(folder_ids)
+    )
 
     batch_size = 100
     all_site_records: list[dict[str, Any]] = []
@@ -619,7 +623,9 @@ def assign_p1_accountable_for_new_site(
             contact_total_sites[cid] = contact_total_sites.get(cid, 0) + 1
 
     if not contact_total_sites:
-        logger.warning("No P1 Accountable found in any existing site record; skipping assignment")
+        logger.warning(
+            "No P1 Accountable found in any existing site record; skipping assignment"
+        )
         return []
 
     # Rule 1: P1 Accountable already working the target state
@@ -638,7 +644,10 @@ def assign_p1_accountable_for_new_site(
 
     # Rule 2: New state — find nearest state with a P1 Accountable
     if state_upper not in US_STATE_CENTROIDS:
-        logger.warning("State '%s' not found in US_STATE_CENTROIDS; cannot find nearest", state_upper)
+        logger.warning(
+            "State '%s' not found in US_STATE_CENTROIDS; cannot find nearest",
+            state_upper,
+        )
         return []
 
     target_lat, target_lon = US_STATE_CENTROIDS[state_upper]
@@ -1025,7 +1034,8 @@ def update_site_record(
         record_id: Wrike folder/project ID
         custom_fields: List of custom field updates [{"id": "...", "value": "..."}]
         description: Updated description (optional)
-        responsible_ids: List of Wrike user IDs to set as task Assignees (responsibleIds)
+        responsible_ids: Target Wrike user IDs for Site Record default assignee(s),
+            mapped to project owner IDs and overwritten directly.
         cfg: Wrike config (loads from env if not provided)
 
     Returns:
@@ -1044,11 +1054,19 @@ def update_site_record(
     if description is not None:
         body["description"] = description
 
-    if responsible_ids:
-        body["responsibleIds"] = responsible_ids
+    if responsible_ids is not None:
+        owner_ids = list(dict.fromkeys(responsible_ids))
+        body["ownerIds"] = owner_ids
+        logger.info(
+            "Overwriting Site Record owners for %s with ownerIds=%s",
+            record_id,
+            owner_ids,
+        )
 
     if not body:
-        raise WrikeError("No updates provided (custom_fields, description, or responsible_ids required)")
+        raise WrikeError(
+            "No updates provided (custom_fields, description, or responsible_ids required)"
+        )
 
     logger.info(
         "Updating site record %s with %d custom fields, responsible_ids=%s",
@@ -1114,7 +1132,8 @@ def update_site_record_with_location_data(
         contact_email: Site POC email
         contact_phone: Site POC phone
         p1_accountable: List of Wrike contact IDs to assign as P1 Accountable custom field
-        responsible_ids: List of Wrike user IDs to set as task Assignees (responsibleIds)
+        responsible_ids: Target Wrike user IDs for default Site Record Assignee(s)
+            (synced to project owners)
         cfg: Wrike config (loads from env if not provided)
 
     Returns:
@@ -1185,7 +1204,10 @@ def update_site_record_with_location_data(
                 inferred_school_type = "Flagship 1000"
 
             fields.append(
-                {"id": WRIKE_CUSTOM_FIELDS["school_type"], "value": inferred_school_type}
+                {
+                    "id": WRIKE_CUSTOM_FIELDS["school_type"],
+                    "value": inferred_school_type,
+                }
             )
             logger.info(
                 "Inferred school_type from square footage (%.0f sq ft): %s",
@@ -1194,7 +1216,8 @@ def update_site_record_with_location_data(
             )
         except ValueError:
             logger.warning(
-                "Could not parse square_footage for school type inference: %s", square_footage
+                "Could not parse square_footage for school type inference: %s",
+                square_footage,
             )
 
     # Vendor Team (LinkToDatabase): always set to the required two IDs
@@ -1210,7 +1233,10 @@ def update_site_record_with_location_data(
     # P1 Accountable (Contacts): set when an assignment was determined
     if p1_accountable:
         fields.append(
-            {"id": WRIKE_CUSTOM_FIELDS["p1_accountable"], "value": json.dumps(p1_accountable)}
+            {
+                "id": WRIKE_CUSTOM_FIELDS["p1_accountable"],
+                "value": json.dumps(p1_accountable),
+            }
         )
         logger.info("Adding p1_accountable update to custom fields: %s", p1_accountable)
 

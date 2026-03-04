@@ -234,7 +234,9 @@ async def update_wrike_site_record(
             p1_accountable=p1_contact_ids if p1_contact_ids else None,
             responsible_ids=p1_contact_ids if p1_contact_ids else None,
         )
-        logger.info("Successfully updated Site Record (stage + location data + P1 Accountable)")
+        logger.info(
+            "Successfully updated Site Record (stage + location data + P1 Accountable)"
+        )
         update_successful = True
     except Exception as e:
         logger.error("Failed to update Site Record: %s", e)
@@ -598,7 +600,10 @@ async def create_drive_folder_with_attachments(
         logger.info("Found %d attachments", len(attachments))
 
         if not attachments:
-            logger.info("No attachments found in email %s — proceeding with folder creation only", email_id)
+            logger.info(
+                "No attachments found in email %s — proceeding with folder creation only",
+                email_id,
+            )
 
         # Create folder in Drive
         logger.info(
