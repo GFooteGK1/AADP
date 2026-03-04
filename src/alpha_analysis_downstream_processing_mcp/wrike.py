@@ -1057,7 +1057,9 @@ def update_site_record(
             [
                 {
                     "id": field.get("id"),
-                    "name": WRIKE_CUSTOM_FIELD_NAMES.get(str(field.get("id")), "unknown"),
+                    "name": WRIKE_CUSTOM_FIELD_NAMES.get(
+                        str(field.get("id")), "unknown"
+                    ),
                     "value_type": type(field.get("value")).__name__,
                 }
                 for field in custom_fields
@@ -1081,8 +1083,12 @@ def update_site_record(
         if not isinstance(current_owner_ids, list):
             current_owner_ids = []
 
-        owners_to_add = [oid for oid in target_owner_ids if oid not in current_owner_ids]
-        owners_to_remove = [oid for oid in current_owner_ids if oid not in target_owner_ids]
+        owners_to_add = [
+            oid for oid in target_owner_ids if oid not in current_owner_ids
+        ]
+        owners_to_remove = [
+            oid for oid in current_owner_ids if oid not in target_owner_ids
+        ]
 
         project_updates: dict[str, Any] = {}
         if owners_to_add:
@@ -1133,7 +1139,15 @@ def update_site_record(
         else:
             request_data[key] = str(value)
 
-    logger.info("Wrike update payload keys for %s: %s", record_id, list(request_data.keys()))
+    logger.info(
+        "Wrike update payload keys for %s: %s", record_id, list(request_data.keys())
+    )
+    if "customFields" in request_data:
+        logger.info(
+            "Wrike customFields payload for %s: %s",
+            record_id,
+            request_data["customFields"],
+        )
 
     resp = requests.put(
         url,
@@ -1275,8 +1289,10 @@ def update_site_record_with_location_data(
                 square_footage,
             )
 
-    # Vendor Team (LinkToDatabase): always set to the required two IDs
-    vendor_team_value = json.dumps(WRIKE_REQUIRED_VENDOR_TEAM_IDS)
+    # Vendor Team (LinkToDatabase): always set to the required two IDs.
+    # Keep this as a native list; update_site_record will JSON-encode the
+    # whole customFields payload once for Wrike form submission.
+    vendor_team_value = list(WRIKE_REQUIRED_VENDOR_TEAM_IDS)
     fields.append(
         {"id": WRIKE_CUSTOM_FIELDS["vendor_team"], "value": vendor_team_value}
     )
@@ -1285,12 +1301,13 @@ def update_site_record_with_location_data(
         WRIKE_REQUIRED_VENDOR_TEAM_IDS,
     )
 
-    # P1 Accountable (Contacts): set when an assignment was determined
+    # P1 Accountable (Contacts): set when an assignment was determined.
+    # Keep this as a native list to avoid double-encoding.
     if p1_accountable:
         fields.append(
             {
                 "id": WRIKE_CUSTOM_FIELDS["p1_accountable"],
-                "value": json.dumps(p1_accountable),
+                "value": list(dict.fromkeys(p1_accountable)),
             }
         )
         logger.info("Adding p1_accountable update to custom fields: %s", p1_accountable)
