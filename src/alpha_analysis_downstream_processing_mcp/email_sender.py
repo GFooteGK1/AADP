@@ -24,6 +24,7 @@ LOI_CC_ADDRESSES: list[str] = [
     "sahil.marwaha@trilogy.com",
     "greg.foote@trilogy.com",
     "andrew.vincent@trilogy.com",
+    "aleks.rushing@huschblackwell.com",
 ]
 
 
