@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 import logging
 import re
+from datetime import datetime
 from typing import Any
 
 from dotenv import load_dotenv
@@ -13,6 +13,11 @@ from mcp.server import FastMCP
 from .config import get_settings
 from .email_sender import EmailConfig, LOIEmailData, send_email, send_loi_email
 from .google_client import GoogleClient
+from .loi_parser import (
+    extract_address_from_loi_pdf,
+    extract_address_from_subject,
+    verify_loi_address,
+)
 from .presentation import (
     ENROLLMENT_DASHBOARD_TABLE_COL,
     ENROLLMENT_DASHBOARD_TABLE_ID,
@@ -23,7 +28,6 @@ from .presentation import (
     build_presentation_updates,
     extract_property_features_from_description,
     extract_scores_from_wrike_record,
-    geocode_address,
 )
 from .utils import (
     download_pdf_from_url,
@@ -85,6 +89,100 @@ def _is_valid_mm_dd_yyyy(date_str: str) -> bool:
         return False
 
     return True
+
+
+@mcp.tool()
+async def extract_loi_address(
+    email_id: str,
+    email_subject: str,
+) -> dict[str, Any]:
+    """Extract and verify the site address from an LOI email.
+
+    Downloads the PDF attachment from the email, extracts the premises address
+    from the LOI document, and compares it with the address in the email subject.
+    When there is a mismatch, the LOI address is preferred.
+
+    Call this tool BEFORE update_wrike_site_record to get the verified address.
+
+    Args:
+        email_id: Gmail message ID containing the LOI attachment
+        email_subject: The email subject line (e.g. "New Site - 123 Main St, Dallas, TX")
+
+    Returns:
+        Dict with verified_address (street, city, state, zip), source, and mismatch info
+    """
+    logger.info("Tool called: extract_loi_address")
+    logger.info(
+        "extract_loi_address params: email_id=%s, email_subject=%s",
+        email_id,
+        email_subject,
+    )
+
+    # Step 1: Extract address from subject
+    subject_address = extract_address_from_subject(email_subject)
+    logger.info("Subject address: %s", subject_address)
+
+    # Step 2: Download PDF attachment from email
+    loi_address: str | None = None
+    try:
+        settings = get_settings()
+        google_client = GoogleClient.from_oauth_config(
+            client_config_path=str(settings.get_client_config_path()),
+            token_file_path=str(settings.get_token_file_path()),
+            oauth_port=settings.oauth_port,
+            scopes=settings.google_scopes,
+        )
+        logger.info("Google client initialized for attachment download")
+
+        attachments = google_client.get_email_attachments(email_id)
+        logger.info("Found %d attachments", len(attachments))
+
+        # Find the first PDF attachment (the LOI)
+        for attachment in attachments:
+            mime_type = attachment.get("mimeType", "")
+            filename = attachment.get("filename", "")
+            if mime_type == "application/pdf" or filename.lower().endswith(".pdf"):
+                logger.info("Processing PDF attachment: %s", filename)
+                loi_address = extract_address_from_loi_pdf(attachment["data"])
+                if loi_address:
+                    break
+                logger.warning(
+                    "Could not extract address from PDF: %s, trying next attachment",
+                    filename,
+                )
+
+        if not loi_address:
+            logger.warning("No address found in any PDF attachment")
+
+    except Exception as e:
+        logger.error("Failed to download or parse email attachments: %s", e)
+
+    # Step 3: Verify and return
+    verification = verify_loi_address(
+        subject_address=subject_address,
+        loi_address=loi_address,
+    )
+
+    verified = verification.get("verified_address")
+    result: dict[str, Any] = {
+        "status": "success" if verified else "error",
+        **verification,
+    }
+
+    if not verified:
+        result["message"] = (
+            "Could not extract address from either the email subject or LOI attachment"
+        )
+    elif verification.get("mismatch"):
+        result["message"] = (
+            f"Address mismatch detected. Subject: '{subject_address}' vs "
+            f"LOI: '{loi_address}'. Using LOI address: '{loi_address}'"
+        )
+    else:
+        result["message"] = f"Verified address: {verified}"
+
+    logger.info("extract_loi_address result: %s", result)
+    return result
 
 
 @mcp.tool()
