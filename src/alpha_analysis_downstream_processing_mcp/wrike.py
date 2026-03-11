@@ -1199,6 +1199,44 @@ def update_site_record(
     return updated_record
 
 
+def create_comment(
+    *,
+    record_id: str,
+    text: str,
+    cfg: WrikeConfig | None = None,
+) -> dict[str, Any]:
+    """Post a comment on a Wrike folder/project (Site Record).
+
+    Args:
+        record_id: Wrike folder/project ID
+        text: Comment text (supports HTML)
+        cfg: Wrike config (loads from env if not provided)
+
+    Returns:
+        Created comment data from Wrike API
+    """
+    if cfg is None:
+        cfg = load_wrike_config()
+
+    url = f"{WRIKE_API_BASE_URL}/folders/{record_id}/comments"
+
+    resp = requests.post(
+        url,
+        headers=_wrike_headers(cfg.access_token),
+        data={"text": text},
+        timeout=WRIKE_TIMEOUT_SECONDS,
+    )
+    _raise_for_wrike_error(resp)
+
+    payload: dict[str, Any] = resp.json()
+    data = payload.get("data", [])
+    if not data:
+        raise WrikeError(f"Comment creation returned no data for record: {record_id}")
+
+    logger.info("Created comment on record %s", record_id)
+    return data[0]
+
+
 def update_site_record_with_location_data(
     *,
     record_id: str,
@@ -1212,6 +1250,7 @@ def update_site_record_with_location_data(
     contact_phone: str | None = None,
     p1_accountable: list[str] | None = None,
     responsible_ids: list[str] | None = None,
+    email_body: str | None = None,
     cfg: WrikeConfig | None = None,
 ) -> dict[str, Any]:
     """
@@ -1233,6 +1272,7 @@ def update_site_record_with_location_data(
         p1_accountable: List of Wrike contact IDs to assign as P1 Accountable custom field
         responsible_ids: Target Wrike user IDs for default Site Record Assignee(s)
             (synced to project owners)
+        email_body: Full body text of the new site email to append to the description
         cfg: Wrike config (loads from env if not provided)
 
     Returns:
@@ -1383,10 +1423,25 @@ def update_site_record_with_location_data(
 
     logger.info("Updating site record %s with location data", record_id)
 
-    return update_site_record(
+    result = update_site_record(
         record_id=record_id,
         custom_fields=fields if fields else None,
         description=updated_description,
         responsible_ids=responsible_ids if responsible_ids else None,
         cfg=cfg,
     )
+
+    # Post the email body as a comment on the record
+    if email_body:
+        email_body_html = email_body.replace("\n", "<br />")
+        comment_text = (
+            "<b>New Site Email Body</b><br />"
+            f"<p>{email_body_html}</p>"
+        )
+        try:
+            create_comment(record_id=record_id, text=comment_text, cfg=cfg)
+            logger.info("Posted email body as comment on record %s", record_id)
+        except Exception as e:
+            logger.error("Failed to post email body comment on record %s: %s", record_id, e)
+
+    return result

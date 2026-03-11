@@ -199,6 +199,7 @@ async def update_wrike_site_record(
     move_in_ready: str,
     current_space_usage: str,
     loi_signed_date: str = "",
+    email_body: str = "",
 ) -> dict[str, Any]:
     """Update a Wrike Site Record with location data from parsed email.
 
@@ -206,6 +207,7 @@ async def update_wrike_site_record(
     - Finds matching Site Record with stage "1. Looking for Sites"
     - Updates overall_site_stage to "2. Evaluating Potential Sites (LOI)"
     - Updates location data (square footage, contact info, property details)
+    - Writes the full email body to the Wrike record description
 
     Args:
         street_address: Street address only (e.g., "123 Main Street")
@@ -220,6 +222,7 @@ async def update_wrike_site_record(
         move_in_ready: Whether the space is move-in ready (yes/no)
         current_space_usage: What the space is currently used for
         loi_signed_date: LOI signed date in MM/DD/YYYY format (optional; pass "" for no-LOI sites)
+        email_body: Full body text of the new site email to store on the Wrike record
 
     Returns:
         Dict containing matched record info and update status
@@ -228,7 +231,7 @@ async def update_wrike_site_record(
     logger.info(
         "update_wrike_site_record params: street_address=%s, city=%s, state=%s, zip_code=%s, loi_signed_date=%s, "
         "contact_name=%s, contact_email=%s, contact_phone=%s, square_footage=%s, "
-        "complete_building=%s, move_in_ready=%s, current_space_usage=%s",
+        "complete_building=%s, move_in_ready=%s, current_space_usage=%s, email_body=%s",
         street_address,
         city,
         state,
@@ -241,6 +244,7 @@ async def update_wrike_site_record(
         complete_building,
         move_in_ready,
         current_space_usage,
+        email_body[:200] if email_body else "",
     )
 
     # Validate LOI signed date format before making Wrike calls
@@ -357,6 +361,7 @@ async def update_wrike_site_record(
             contact_phone=contact_phone,
             p1_accountable=p1_contact_ids if p1_contact_ids else None,
             responsible_ids=p1_contact_ids if p1_contact_ids else None,
+            email_body=email_body or None,
         )
         logger.info(
             "Successfully updated Site Record (stage + location data + P1 Accountable)"
