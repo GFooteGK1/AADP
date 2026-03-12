@@ -172,6 +172,51 @@ def _raise_for_wrike_error(resp: requests.Response) -> None:
     raise WrikeError(f"Wrike API error {resp.status_code}: {body}")
 
 
+def get_contact_emails(
+    contact_ids: list[str], *, cfg: WrikeConfig | None = None
+) -> list[str]:
+    """Look up email addresses for Wrike contact IDs.
+
+    Args:
+        contact_ids: List of Wrike contact IDs
+        cfg: Wrike config (loads from env if not provided)
+
+    Returns:
+        List of email addresses (may be shorter than input if some contacts lack emails)
+    """
+    if not contact_ids:
+        return []
+
+    if cfg is None:
+        cfg = load_wrike_config()
+
+    ids_param = ",".join(contact_ids)
+    url = f"{WRIKE_API_BASE_URL}/contacts/{ids_param}"
+
+    logger.info("Looking up emails for contact IDs: %s", contact_ids)
+
+    resp = requests.get(
+        url,
+        headers=_wrike_headers(cfg.access_token),
+        timeout=WRIKE_TIMEOUT_SECONDS,
+    )
+    _raise_for_wrike_error(resp)
+
+    payload: dict[str, Any] = resp.json()
+    contacts = payload.get("data", [])
+
+    emails: list[str] = []
+    for contact in contacts:
+        email = contact.get("profiles", [{}])[0].get("email", "")
+        if email:
+            emails.append(email)
+            logger.info("Contact %s -> %s", contact.get("id"), email)
+        else:
+            logger.warning("No email found for contact %s", contact.get("id"))
+
+    return emails
+
+
 def enrich_custom_fields_with_names(record: dict[str, Any]) -> dict[str, Any]:
     """
     Enrich custom fields in a Wrike record with human-readable names.

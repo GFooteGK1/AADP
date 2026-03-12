@@ -203,17 +203,27 @@ def send_email(config: EmailConfig) -> dict:
         raise SESEmailError(f"Failed to send email: {error_code} - {error_msg}") from e
 
 
-def build_loi_email(data: LOIEmailData) -> EmailConfig:
+def build_loi_email(
+    data: LOIEmailData, extra_cc_addresses: list[str] | None = None
+) -> EmailConfig:
     """
     Build the LOI notification email configuration.
 
     Args:
         data: LOIEmailData with address and SIR report
+        extra_cc_addresses: Additional CC recipients (e.g. P1 Accountable emails)
 
     Returns:
         EmailConfig ready to be sent
     """
     to_addresses, cc_addresses = _get_loi_recipients()
+    if extra_cc_addresses:
+        # Deduplicate against existing recipients
+        existing = {addr.lower() for addr in to_addresses + cc_addresses}
+        for addr in extra_cc_addresses:
+            if addr.lower() not in existing:
+                cc_addresses.append(addr)
+                existing.add(addr.lower())
 
     subject = f"New Site Kickoff: {data.full_address}"
 
@@ -331,12 +341,15 @@ def build_loi_email(data: LOIEmailData) -> EmailConfig:
     )
 
 
-def send_loi_email(data: LOIEmailData) -> dict:
+def send_loi_email(
+    data: LOIEmailData, extra_cc_addresses: list[str] | None = None
+) -> dict:
     """
     Send the LOI notification email with SIR report attached.
 
     Args:
         data: LOIEmailData with address and SIR report
+        extra_cc_addresses: Additional CC recipients (e.g. P1 Accountable emails)
 
     Returns:
         Dict with 'message_id' and 'success' on success
@@ -344,7 +357,7 @@ def send_loi_email(data: LOIEmailData) -> dict:
     Raises:
         SESEmailError: If sending fails
     """
-    config = build_loi_email(data)
+    config = build_loi_email(data, extra_cc_addresses=extra_cc_addresses)
     logger.info(
         "Sending LOI email for %s to %s (cc: %s)",
         data.full_address,

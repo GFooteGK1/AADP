@@ -39,8 +39,10 @@ from .wrike import (
     assign_p1_accountable_for_new_site,
     enrich_custom_fields_with_names,
     extract_address_from_record,
+    extract_p1_accountable_from_record,
     extract_school_type_from_record,
     find_site_record_by_address,
+    get_contact_emails,
     get_site_record_by_id,
     resolve_permalink_to_id,
     update_site_record,
@@ -576,7 +578,19 @@ async def send_loi_notification(
 
     logger.info("School type: %s", school_type)
 
-    # Step 5: Download SIR and send email
+    # Step 5: Look up P1 Accountable emails to CC on the notification
+    p1_emails: list[str] = []
+    try:
+        p1_contact_ids = extract_p1_accountable_from_record(site_record)
+        if p1_contact_ids:
+            p1_emails = get_contact_emails(p1_contact_ids)
+            logger.info("P1 Accountable emails for CC: %s", p1_emails)
+        else:
+            logger.info("No P1 Accountable on record; skipping CC lookup")
+    except Exception as e:
+        logger.warning("Failed to look up P1 Accountable emails: %s", e)
+
+    # Step 6: Download SIR and send email
     logger.info("Downloading SIR report PDF from: %s", sir_url)
     try:
         sir_pdf = download_pdf_from_url(sir_url)
@@ -590,7 +604,8 @@ async def send_loi_notification(
                 school_type=school_type,
                 sir_report_pdf=sir_pdf,
                 sir_report_filename=f"SIR_{record_id}.pdf",
-            )
+            ),
+            extra_cc_addresses=p1_emails,
         )
         email_sent = email_result.get("success", False)
         email_message_id = email_result.get("message_id")
