@@ -195,7 +195,9 @@ send_loi_notification(
 - Extract SIR report URL from description
 - Download SIR PDF
 - Extract school type and address
-- Send email to CDS (auth.permitting@trilogy.com) with:
+- Look up the P1 Accountable contact's email from the Wrike record
+- Send email to CDS with:
+  - CC: P1 Accountable (so the assignee gets a direct copy) plus standard CC list
   - Subject: "New Site Kickoff: {address}"
   - Body: Site information table with address, school type, grades, students, staff
   - Attachment: SIR report PDF
@@ -229,8 +231,8 @@ create_drive_folder_with_attachments(
 
 - Download all attachments from the original email
 - Create a Google Drive folder with name: "{brand}, {city}, {street_address}"
-- Create 7 standard subfolders: 01_Due Diligence, 02_Business Entity, 03_Construction,
-  04_Private School Registration, 05_Vendors & Contracts, 06_Operations, 99_Working
+- Create 7 standard subfolders: M1 - Acquire Property, M2 - Construction Permits, M3 - Construction Schedule,
+  M4 - Education Regulatory, M5 - Certificate of Occupancy, M6 - Ready to Open, Working
 - Upload **all** email attachments (LOI, landlord responses, floorplans, photos, etc.) into the `M1 - Acquire Property` subfolder — not just the LOI PDF
 - If the email has no attachments (e.g., no-LOI sites), the folder and subfolders are still created — the result will show `attachments_uploaded: 0`
 - Return folder link, subfolder list, and uploaded file details
