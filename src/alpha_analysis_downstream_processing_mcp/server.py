@@ -7,6 +7,7 @@ import re
 from datetime import datetime
 from typing import Any
 
+import requests
 from dotenv import load_dotenv
 from mcp.server import FastMCP
 
@@ -46,6 +47,7 @@ from .utils import (
 )
 from .wrike import (
     WRIKE_CUSTOM_FIELDS,
+    P1AssignmentResult,
     assign_p1_accountable_for_new_site,
     enrich_custom_fields_with_names,
     extract_address_from_record,
@@ -88,6 +90,36 @@ SITE_DRIVE_SUBFOLDERS: list[str] = [
     "M6 - Ready to Open",
     "Working",
 ]
+
+
+GOOGLE_CHAT_WEBHOOK_URL = (
+    "https://chat.googleapis.com/v1/spaces/AAQAY6uu1x8/messages"
+    "?key=REDACTED_GOOGLE_API_KEY"
+    "&token=REDACTED_WEBHOOK_TOKEN"
+)
+
+
+def _send_p1_assignment_chat_notification(
+    *,
+    full_address: str,
+    p1_result: P1AssignmentResult,
+    wrike_permalink: str,
+) -> None:
+    """Send P1 assignment reasoning to Google Chat webhook. Non-blocking."""
+    try:
+        text = (
+            f"*P1 Accountable Assigned* for {full_address}\n\n"
+            f"{p1_result.reasoning}\n\n"
+            f"<{wrike_permalink}|View in Wrike>"
+        )
+        requests.post(
+            GOOGLE_CHAT_WEBHOOK_URL,
+            json={"text": text},
+            timeout=10,
+        )
+        logger.info("Sent P1 assignment notification to Google Chat")
+    except Exception as e:
+        logger.warning("Failed to send Google Chat notification: %s", e)
 
 
 def _is_valid_mm_dd_yyyy(date_str: str) -> bool:
@@ -344,17 +376,23 @@ async def update_wrike_site_record(
         state,
         school_type,
     )
-    p1_contact_ids: list[str] = []
+    p1_result = P1AssignmentResult(contact_ids=[], rule="None", reasoning="Not attempted")
     try:
-        p1_contact_ids = assign_p1_accountable_for_new_site(
+        p1_result = assign_p1_accountable_for_new_site(
             state=state, city=city, school_type=school_type
         )
-        if p1_contact_ids:
-            logger.info("P1 Accountable assigned: %s", p1_contact_ids)
+        if p1_result.contact_ids:
+            logger.info(
+                "P1 Accountable assigned: %s (%s)",
+                p1_result.contact_ids,
+                p1_result.reasoning,
+            )
         else:
             logger.warning("No P1 Accountable could be determined for state: %s", state)
     except Exception as e:
         logger.error("Failed to determine P1 Accountable: %s", e)
+
+    p1_contact_ids = p1_result.contact_ids
 
     # Step 4: Update Site Record (stage + location data + P1 Accountable in one API call)
     logger.info("Updating Site Record with stage, location data, and P1 Accountable...")
@@ -383,6 +421,14 @@ async def update_wrike_site_record(
         logger.error("Failed to update Site Record: %s", e)
         update_successful = False
 
+    # Step 4.5: Notify Google Chat with P1 assignment reasoning
+    if p1_result.contact_ids:
+        _send_p1_assignment_chat_notification(
+            full_address=full_address,
+            p1_result=p1_result,
+            wrike_permalink=record_permalink or "",
+        )
+
     # Step 5: Return result
     result = {
         "status": "success",
@@ -392,6 +438,7 @@ async def update_wrike_site_record(
             "permalink": record_permalink,
         },
         "p1_accountable_assigned": p1_contact_ids,
+        "p1_assignment_reasoning": p1_result.reasoning,
         "update_successful": update_successful,
         "message": f"{'Successfully' if update_successful else 'Failed to'} updated Wrike Site Record for {full_address} (stage + location data + P1 Accountable).",
     }

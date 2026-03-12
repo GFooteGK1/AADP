@@ -134,6 +134,15 @@ class WrikeConfig:
     access_token: str
 
 
+@dataclass
+class P1AssignmentResult:
+    """Result of P1 Accountable assignment with reasoning."""
+
+    contact_ids: list[str]
+    rule: str  # e.g. "Rule 1", "Rule 1.5", "Rule 2"
+    reasoning: str
+
+
 class WrikeError(RuntimeError):
     """Wrike API error."""
 
@@ -645,7 +654,7 @@ def assign_p1_accountable_for_new_site(
     city: str | None = None,
     school_type: str | None = None,
     cfg: WrikeConfig | None = None,
-) -> list[str]:
+) -> P1AssignmentResult:
     """
     Determine which P1 Accountable contact to assign to a new site.
 
@@ -679,7 +688,7 @@ def assign_p1_accountable_for_new_site(
         cfg: Wrike config (loads from env if not provided)
 
     Returns:
-        List containing the single assigned contact ID, or [] if none found.
+        P1AssignmentResult with contact IDs, rule used, and reasoning.
     """
     state_upper = state.upper().strip()
     logger.info(
@@ -695,7 +704,11 @@ def assign_p1_accountable_for_new_site(
             "School type '%s' is excluded from P1 assignment; returning []",
             school_type,
         )
-        return []
+        return P1AssignmentResult(
+            contact_ids=[],
+            rule="Excluded",
+            reasoning=f"School type '{school_type}' is excluded from P1 assignment",
+        )
 
     all_records = get_all_site_records(cfg=cfg)
 
@@ -734,7 +747,21 @@ def assign_p1_accountable_for_new_site(
             "skipping assignment (school_type=%s)",
             school_type,
         )
-        return []
+        return P1AssignmentResult(
+            contact_ids=[],
+            rule="None",
+            reasoning="No eligible P1 Accountable found in any existing site record",
+        )
+
+    # Helper to look up member name from contact ID
+    from .flights import CONTACT_ID_TO_MEMBER
+    from .flights import TEAM_MEMBERS as _FLIGHT_MEMBERS
+
+    def _contact_name(cid: str) -> str:
+        key = CONTACT_ID_TO_MEMBER.get(cid)
+        if key:
+            return _FLIGHT_MEMBERS[key].name
+        return cid
 
     # Rule 1: P1 Accountable already working the target state
     if state_upper in state_contacts and state_contacts[state_upper]:
@@ -748,7 +775,15 @@ def assign_p1_accountable_for_new_site(
             assigned,
             contact_total_sites.get(assigned, 0),
         )
-        return [assigned]
+        return P1AssignmentResult(
+            contact_ids=[assigned],
+            rule="Rule 1",
+            reasoning=(
+                f"Rule 1 (same state): {_contact_name(assigned)} already works in "
+                f"{state_upper} and has the fewest sites "
+                f"({contact_total_sites.get(assigned, 0)} total)"
+            ),
+        )
 
     # Rule 1.5: Flight route scoring (when city + SERPAPI_API_KEY available)
     if city and os.getenv("SERPAPI_API_KEY"):
@@ -778,7 +813,22 @@ def assign_p1_accountable_for_new_site(
                         assigned,
                         contact_total_sites.get(assigned, 0),
                     )
-                    return [assigned]
+                    # Build reasoning from all scores
+                    score_details = ", ".join(
+                        f"{_contact_name(cid)}: {score:.0f} pts"
+                        for cid, score in ranked
+                    )
+                    return P1AssignmentResult(
+                        contact_ids=[assigned],
+                        rule="Rule 1.5",
+                        reasoning=(
+                            f"Rule 1.5 (flight scoring): Scored nonstop routes "
+                            f"to {city} ({', '.join(airports)}). "
+                            f"Scores: {score_details}. "
+                            f"Assigned to {_contact_name(assigned)} "
+                            f"({contact_total_sites.get(assigned, 0)} total sites)"
+                        ),
+                    )
                 logger.info(
                     "Flight scoring returned no eligible contacts for %s; "
                     "falling through to Rule 2",
@@ -793,7 +843,11 @@ def assign_p1_accountable_for_new_site(
             "State '%s' not found in US_STATE_CENTROIDS; cannot find nearest",
             state_upper,
         )
-        return []
+        return P1AssignmentResult(
+            contact_ids=[],
+            rule="None",
+            reasoning=f"State '{state_upper}' not in centroids; cannot determine nearest",
+        )
 
     target_lat, target_lon = US_STATE_CENTROIDS[state_upper]
 
@@ -811,7 +865,11 @@ def assign_p1_accountable_for_new_site(
 
     if nearest_state is None:
         logger.warning("Could not find any state with a P1 Accountable to fall back to")
-        return []
+        return P1AssignmentResult(
+            contact_ids=[],
+            rule="None",
+            reasoning="No state with a P1 Accountable found to fall back to",
+        )
 
     candidates = list(state_contacts[nearest_state])
     assigned = _pick_contact_with_fewest_sites(candidates, contact_total_sites)
@@ -825,7 +883,17 @@ def assign_p1_accountable_for_new_site(
         assigned,
         contact_total_sites.get(assigned, 0),
     )
-    return [assigned]
+    return P1AssignmentResult(
+        contact_ids=[assigned],
+        rule="Rule 2",
+        reasoning=(
+            f"Rule 2 (nearest state): No P1 in {state_upper}. "
+            f"Nearest state with a P1 is {nearest_state} "
+            f"({nearest_distance:.0f} km away). "
+            f"Assigned to {_contact_name(assigned)} "
+            f"({contact_total_sites.get(assigned, 0)} total sites)"
+        ),
+    )
 
 
 def _match_address_with_llm(
