@@ -12,6 +12,16 @@ from mcp.server import FastMCP
 
 from .config import get_settings
 from .email_sender import EmailConfig, LOIEmailData, send_email, send_loi_email
+from .flights import (
+    SCHOOL_LOCATION_MAP,
+    TEAM_MEMBERS,
+    assign_locations_to_members,
+    clear_cache,
+    fetch_nonstop_routes,
+    get_cache_stats,
+    resolve_location_to_airports,
+    score_destination_for_all_members,
+)
 from .google_client import GoogleClient
 from .loi_parser import (
     extract_address_from_loi_pdf,
@@ -337,7 +347,7 @@ async def update_wrike_site_record(
     p1_contact_ids: list[str] = []
     try:
         p1_contact_ids = assign_p1_accountable_for_new_site(
-            state=state, school_type=school_type
+            state=state, city=city, school_type=school_type
         )
         if p1_contact_ids:
             logger.info("P1 Accountable assigned: %s", p1_contact_ids)
@@ -1118,6 +1128,171 @@ async def create_location_presentation(
 
     logger.info("create_location_presentation result: %s", result)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Flight route scoring tools
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def check_nonstop_routes(
+    origin: str,
+    destination: str,
+    force_refresh: bool = False,
+) -> dict[str, Any]:
+    """Check nonstop flight routes between two airports via SerpAPI Google Flights.
+
+    Args:
+        origin: Origin IATA airport code (e.g. "MSY", "SAT", "PHX")
+        destination: Destination IATA airport code (e.g. "CLT", "AUS")
+        force_refresh: Bypass cache and fetch fresh data from SerpAPI
+
+    Returns:
+        Dict with nonstop_available boolean and list of routes
+    """
+    logger.info("Tool called: check_nonstop_routes(%s -> %s)", origin, destination)
+    try:
+        routes = fetch_nonstop_routes(origin, destination, force_refresh=force_refresh)
+        return {
+            "status": "success",
+            "origin": origin.upper(),
+            "destination": destination.upper(),
+            "nonstop_available": len(routes) > 0,
+            "route_count": len(routes),
+            "routes": routes,
+        }
+    except Exception as e:
+        logger.error("check_nonstop_routes failed: %s", e)
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+async def score_location(
+    destination_airport: str,
+    force_refresh: bool = False,
+) -> dict[str, Any]:
+    """Score a destination airport for all EDU Ops team members.
+
+    Evaluates nonstop route availability, airline preferences, and flight
+    duration to rank team members for a site visit assignment.
+
+    Args:
+        destination_airport: IATA airport code (e.g. "CLT", "AUS")
+        force_refresh: Bypass cache and fetch fresh data from SerpAPI
+
+    Returns:
+        Dict with best_fit member name and ranked scores for all members
+    """
+    logger.info("Tool called: score_location(%s)", destination_airport)
+    try:
+        result = score_destination_for_all_members(
+            destination_airport, force_refresh=force_refresh
+        )
+        return {"status": "success", **result}
+    except Exception as e:
+        logger.error("score_location failed: %s", e)
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+async def assign_locations(
+    locations: list[dict[str, str]],
+    force_refresh: bool = False,
+) -> dict[str, Any]:
+    """Batch-assign multiple destinations to best-fit EDU Ops team members.
+
+    Each location should have an "airport" key (IATA code) and optional "city" key.
+
+    Args:
+        locations: List of {"airport": "CLT", "city": "Charlotte, NC"} dicts
+        force_refresh: Bypass cache and fetch fresh data from SerpAPI
+
+    Returns:
+        Dict with per-person summary and detailed assignment breakdown
+    """
+    logger.info("Tool called: assign_locations(%d locations)", len(locations))
+    try:
+        result = assign_locations_to_members(locations, force_refresh=force_refresh)
+        return {"status": "success", **result}
+    except Exception as e:
+        logger.error("assign_locations failed: %s", e)
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+async def resolve_school_location(
+    location: str,
+) -> dict[str, Any]:
+    """Map a city name to IATA airport code(s) from the known school portfolio.
+
+    Supports exact, case-insensitive, and partial string matching.
+    Examples: "Charlotte, NC", "Charlotte", "Dallas"
+
+    Args:
+        location: City name or partial location string
+
+    Returns:
+        Dict with matched airports or list of known locations if no match
+    """
+    logger.info("Tool called: resolve_school_location(%s)", location)
+    try:
+        result = resolve_location_to_airports(location)
+        return {"status": "success", **result}
+    except Exception as e:
+        logger.error("resolve_school_location failed: %s", e)
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+async def list_team_preferences() -> dict[str, Any]:
+    """List EDU Ops team member flight preferences and known school locations.
+
+    Returns team member configs (name, home airport, airline rules) and the
+    full school location to airport code mapping.
+    """
+    logger.info("Tool called: list_team_preferences")
+    members = []
+    for key, m in TEAM_MEMBERS.items():
+        members.append({
+            "key": key,
+            "name": m.name,
+            "home_airport": m.home_airport,
+            "required_airlines": sorted(m.required_airlines),
+            "preferred_airlines": sorted(m.preferred_airlines),
+            "prioritize_shortest": m.prioritize_shortest,
+        })
+
+    return {
+        "status": "success",
+        "team_members": members,
+        "school_locations": dict(SCHOOL_LOCATION_MAP),
+    }
+
+
+@mcp.tool()
+async def manage_route_cache(
+    action: str,
+) -> dict[str, Any]:
+    """View or clear the in-memory flight route data cache.
+
+    Args:
+        action: "stats" to view cache info, "clear" to clear all cached routes
+
+    Returns:
+        Cache statistics or confirmation of clear
+    """
+    logger.info("Tool called: manage_route_cache(%s)", action)
+    if action == "stats":
+        stats = get_cache_stats()
+        return {"status": "success", "action": "stats", **stats}
+    if action == "clear":
+        count = clear_cache()
+        return {"status": "success", "action": "clear", "entries_cleared": count}
+    return {
+        "status": "error",
+        "error": f"Invalid action '{action}'. Must be 'stats' or 'clear'.",
+    }
 
 
 def main() -> None:

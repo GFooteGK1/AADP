@@ -642,6 +642,7 @@ def _eligible_contacts_for_school_type(
 def assign_p1_accountable_for_new_site(
     *,
     state: str,
+    city: str | None = None,
     school_type: str | None = None,
     cfg: WrikeConfig | None = None,
 ) -> list[str]:
@@ -652,6 +653,10 @@ def assign_p1_accountable_for_new_site(
 
     1. If one or more P1 Accountable contacts are already working in the target
        state, assign to the one with the fewest total sites overall.
+
+    1.5 If city is provided and SERPAPI_API_KEY is set, score eligible contacts
+        by nonstop flight availability. Among top-scoring contacts, break ties
+        using fewest total sites. Falls through to Rule 2 on failure.
 
     2. If nobody is working in the target state (new state), find the P1
        Accountable working in the geographically nearest state (by centroid
@@ -669,6 +674,7 @@ def assign_p1_accountable_for_new_site(
 
     Args:
         state: Two-letter US state code for the new site (e.g. "TX")
+        city: City name for flight route scoring (e.g. "Charlotte, NC")
         school_type: Internal school type ("250", "1000", "micro", "jc_fisher")
         cfg: Wrike config (loads from env if not provided)
 
@@ -743,6 +749,43 @@ def assign_p1_accountable_for_new_site(
             contact_total_sites.get(assigned, 0),
         )
         return [assigned]
+
+    # Rule 1.5: Flight route scoring (when city + SERPAPI_API_KEY available)
+    if city and os.getenv("SERPAPI_API_KEY"):
+        try:
+            from .flights import rank_contacts_by_flight_score, resolve_location_to_airports
+
+            loc_result = resolve_location_to_airports(city)
+            airports = loc_result.get("airports", [])
+            if airports:
+                eligible_ids = set(contact_total_sites.keys())
+                if eligible is not None:
+                    eligible_ids &= eligible
+                ranked = rank_contacts_by_flight_score(airports, eligible_ids)
+                if ranked:
+                    # Among contacts with the top flight score, pick fewest sites
+                    top_score = ranked[0][1]
+                    top_contacts = [cid for cid, s in ranked if s == top_score]
+                    assigned = _pick_contact_with_fewest_sites(
+                        top_contacts, contact_total_sites
+                    )
+                    logger.info(
+                        "P1 assignment (Rule 1.5 – flight score): city=%s, "
+                        "airports=%s, ranked=%s, assigned=%s (total sites: %d)",
+                        city,
+                        airports,
+                        ranked,
+                        assigned,
+                        contact_total_sites.get(assigned, 0),
+                    )
+                    return [assigned]
+                logger.info(
+                    "Flight scoring returned no eligible contacts for %s; "
+                    "falling through to Rule 2",
+                    city,
+                )
+        except Exception as e:
+            logger.warning("Flight scoring failed, falling through to Rule 2: %s", e)
 
     # Rule 2: New state — find nearest state with a P1 Accountable
     if state_upper not in US_STATE_CENTROIDS:

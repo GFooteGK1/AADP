@@ -58,6 +58,32 @@ You are the **Alpha Analysis Downstream Processing Expert**. Your mission is to 
    - Fetch Wrike record for inspection/debugging
    - Parameters: `wrike_record_id` or `wrike_permalink`
 
+### Flight Route Scoring Tools (MCP)
+
+8. **`check_nonstop_routes`**
+   - Raw lookup: checks if nonstop flights exist between two airports via SerpAPI Google Flights
+   - Parameters: `origin` (IATA code), `destination` (IATA code), `force_refresh` (optional)
+
+9. **`score_location`**
+   - Scores a destination airport for all EDU Ops team members (Andrea, Robbie, Devin) based on nonstop route availability, airline preferences, and flight duration
+   - Parameters: `destination_airport` (IATA code), `force_refresh` (optional)
+
+10. **`assign_locations`**
+    - Batch-assigns multiple destination airports to best-fit team members
+    - Parameters: `locations` (list of `{"airport": "CLT", "city": "Charlotte, NC"}`), `force_refresh` (optional)
+
+11. **`resolve_school_location`**
+    - Maps a city name to IATA airport code(s) from the known school portfolio (supports partial matching)
+    - Parameters: `location` (e.g. "Charlotte, NC" or "Charlotte")
+
+12. **`list_team_preferences`**
+    - Returns all team member configs (name, home airport, airline rules) and the school location map
+    - No parameters
+
+13. **`manage_route_cache`**
+    - View or clear the in-memory flight route data cache
+    - Parameters: `action` ("stats" or "clear")
+
 ---
 
 ## Operating Flow

@@ -54,6 +54,13 @@ The auto-assignment logic exists (`assign_p1_accountable_for_new_site()` in `wri
   - `send_loi_notification` now extracts P1 Accountable from the Wrike record and CCs their email on the CDS notification
   - `build_loi_email()` and `send_loi_email()` accept `extra_cc_addresses` parameter with deduplication against existing recipients
   - Lookup failure is non-blocking — email still sends if contact resolution fails
+- [x] Flight route scoring tools + P1 assignment integration (2026-03-12):
+  - Created `flights.py` — SerpAPI Google Flights client, in-memory cache (7-day TTL), scoring engine, team member configs
+  - 6 new MCP tools: `check_nonstop_routes`, `score_location`, `assign_locations`, `resolve_school_location`, `list_team_preferences`, `manage_route_cache`
+  - Team rules: Andrea (MSY, requires UA/DL), Robbie (SAT, prefers AA, nonstop-first), Devin (PHX, prefers AA, shortest flight)
+  - P1 assignment Rule 1.5: when city + `SERPAPI_API_KEY` available, flight scoring ranks contacts before haversine fallback
+  - Non-breaking: falls through to existing haversine logic if API key missing or scoring fails
+  - 21 school locations mapped to IATA airport codes
 
 ---
 

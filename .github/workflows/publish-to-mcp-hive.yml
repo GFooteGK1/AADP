@@ -40,6 +40,7 @@ jobs:
           [ -n "${{ secrets.OAUTH_CLIENT_ID }}" ] || { echo "❌ OAUTH_CLIENT_ID missing"; exit 1; }
           [ -n "${{ secrets.OAUTH_CLIENT_SECRET }}" ] || { echo "❌ OAUTH_CLIENT_SECRET missing"; exit 1; }
           [ -n "${{ secrets.GOOGLE_MAPS_API_KEY }}" ] || { echo "❌ GOOGLE_MAPS_API_KEY missing"; exit 1; }
+          [ -n "${{ secrets.SERPAPI_API_KEY }}" ] || { echo "❌ SERPAPI_API_KEY missing"; exit 1; }
           echo "✅ All required secrets are present"
 
       - name: Get version from pyproject.toml
@@ -57,6 +58,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           SES_SENDER_EMAIL: ${{ secrets.SES_SENDER_EMAIL }}
           GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+          SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
         run: |
           touch .env
           echo "WRIKE_ACCESS_TOKEN=${WRIKE_ACCESS_TOKEN}" >> .env
@@ -65,6 +67,7 @@ jobs:
           echo "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}" >> .env
           echo "SES_SENDER_EMAIL=${SES_SENDER_EMAIL}" >> .env
           echo "GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}" >> .env
+          echo "SERPAPI_API_KEY=${SERPAPI_API_KEY}" >> .env
           echo "✅ Created .env file with secrets"
 
       - name: Create custom payload file
