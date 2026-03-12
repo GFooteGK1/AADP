@@ -1,6 +1,6 @@
 # Alpha Analysis Downstream Processing — Roadmap
 
-## Status as of 2026-03-03
+## Status as of 2026-03-12
 
 ### What Is Working (Confirmed)
 
@@ -44,6 +44,16 @@ The auto-assignment logic exists (`assign_p1_accountable_for_new_site()` in `wri
   - `loi_signed_date` made optional (default `""`) in `update_wrike_site_record` — skips date validation when empty, passes `None` downstream
   - `create_drive_folder_with_attachments` no longer errors on zero attachments — folder + subfolders always created
   - `prompt.md` updated: mission broadened to all "New Site" emails, added `no_loi` boolean extraction, updated tool descriptions, error handling, expected success rates, and success checklist
+- [x] Email body saved to Wrike comments (2026-03-11, commit `ab5f236`):
+  - Added `email_body` parameter to `update_wrike_site_record` tool
+  - Added `create_comment()` function in `wrike.py` — posts to Wrike `/folders/{id}/comments` API
+  - Full new site email body is posted as an HTML comment on the Wrike record (not in the description)
+  - Clarified in `prompt.md` that **all** email attachments (not just the LOI PDF) are uploaded to `M1 - Acquire Property`
+- [x] CC P1 Accountable on CDS LOI notification email (2026-03-12, commit `abb3b7d`):
+  - Added `get_contact_emails()` in `wrike.py` — resolves Wrike contact IDs to email addresses via `/contacts/{ids}` API
+  - `send_loi_notification` now extracts P1 Accountable from the Wrike record and CCs their email on the CDS notification
+  - `build_loi_email()` and `send_loi_email()` accept `extra_cc_addresses` parameter with deduplication against existing recipients
+  - Lookup failure is non-blocking — email still sends if contact resolution fails
 
 ---
 
