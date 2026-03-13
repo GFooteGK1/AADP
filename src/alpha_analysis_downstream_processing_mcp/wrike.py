@@ -154,9 +154,7 @@ def load_wrike_config() -> WrikeConfig:
     access_token = os.getenv("WRIKE_ACCESS_TOKEN", "")
 
     if not access_token:
-        raise WrikeError(
-            "Missing WRIKE_ACCESS_TOKEN env var. Add it to .env file or process env."
-        )
+        raise WrikeError("Missing WRIKE_ACCESS_TOKEN env var. Add it to .env file or process env.")
 
     logger.info("Wrike config loaded: space_id=%s", WRIKE_SPACE_ID)
     return WrikeConfig(access_token=access_token)
@@ -181,9 +179,7 @@ def _raise_for_wrike_error(resp: requests.Response) -> None:
     raise WrikeError(f"Wrike API error {resp.status_code}: {body}")
 
 
-def get_contact_emails(
-    contact_ids: list[str], *, cfg: WrikeConfig | None = None
-) -> list[str]:
+def get_contact_emails(contact_ids: list[str], *, cfg: WrikeConfig | None = None) -> list[str]:
     """Look up email addresses for Wrike contact IDs.
 
     Args:
@@ -342,9 +338,7 @@ def _haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> f
     dlon = math.radians(lon2 - lon1)
     a = (
         math.sin(dlat / 2) ** 2
-        + math.cos(math.radians(lat1))
-        * math.cos(math.radians(lat2))
-        * math.sin(dlon / 2) ** 2
+        + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
     )
     return R * 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
 
@@ -546,10 +540,7 @@ def get_site_records_by_stage(
                 if owner_ids is None:
                     owner_ids = item.get("ownerIds")
 
-                if (
-                    not isinstance(owner_ids, list)
-                    or required_owner_id not in owner_ids
-                ):
+                if not isinstance(owner_ids, list) or required_owner_id not in owner_ids:
                     logger.debug(
                         "Skipping Site Record %s due to missing ownerId '%s' (ownerIds=%s)",
                         item.get("id"),
@@ -593,9 +584,7 @@ def get_all_site_records(*, cfg: WrikeConfig | None = None) -> list[dict[str, An
         cfg = load_wrike_config()
 
     folder_ids = _get_all_folder_ids(access_token=cfg.access_token)
-    logger.info(
-        "Fetching all Site Records (any stage) from %d folders", len(folder_ids)
-    )
+    logger.info("Fetching all Site Records (any stage) from %d folders", len(folder_ids))
 
     batch_size = 100
     all_site_records: list[dict[str, Any]] = []
@@ -660,18 +649,19 @@ def assign_p1_accountable_for_new_site(
 
     Assignment rules (in priority order):
 
-    1. If one or more P1 Accountable contacts are already working in the target
-       state, assign to the one with the fewest total sites overall.
+    1. If city is provided and SERPAPI_API_KEY is set, score eligible contacts
+       by nonstop flight availability. Among top-scoring contacts, break ties
+       using fewest total sites. Falls through to Rule 2 on failure.
 
-    1.5 If city is provided and SERPAPI_API_KEY is set, score eligible contacts
-        by nonstop flight availability. Among top-scoring contacts, break ties
-        using fewest total sites. Falls through to Rule 2 on failure.
+    2. If flight data is unavailable and one or more P1 Accountable contacts
+       are already working in the target state, assign to the one with the
+       fewest total sites overall.
 
-    2. If nobody is working in the target state (new state), find the P1
+    3. If nobody is working in the target state (new state), find the P1
        Accountable working in the geographically nearest state (by centroid
        distance) and assign to the one with the fewest total sites overall.
 
-    3. If no P1 Accountable exists anywhere, return [].
+    4. If no P1 Accountable exists anywhere, return [].
 
     Contact pools are restricted by school type:
     - Growth (250) / Flagship (1000): Thomas Barrow, Israe Zizaoui
@@ -763,29 +753,7 @@ def assign_p1_accountable_for_new_site(
             return _FLIGHT_MEMBERS[key].name
         return cid
 
-    # Rule 1: P1 Accountable already working the target state
-    if state_upper in state_contacts and state_contacts[state_upper]:
-        candidates = list(state_contacts[state_upper])
-        assigned = _pick_contact_with_fewest_sites(candidates, contact_total_sites)
-        logger.info(
-            "P1 assignment (Rule 1 – same state): state=%s, candidates=%s, assigned=%s "
-            "(total sites: %d)",
-            state_upper,
-            candidates,
-            assigned,
-            contact_total_sites.get(assigned, 0),
-        )
-        return P1AssignmentResult(
-            contact_ids=[assigned],
-            rule="Rule 1",
-            reasoning=(
-                f"Rule 1 (same state): {_contact_name(assigned)} already works in "
-                f"{state_upper} and has the fewest sites "
-                f"({contact_total_sites.get(assigned, 0)} total)"
-            ),
-        )
-
-    # Rule 1.5: Flight route scoring (when city + SERPAPI_API_KEY available)
+    # Rule 1: Flight route scoring (primary — when city + SERPAPI_API_KEY available)
     if city and os.getenv("SERPAPI_API_KEY"):
         try:
             from .flights import rank_contacts_by_flight_score, resolve_location_to_airports
@@ -801,11 +769,9 @@ def assign_p1_accountable_for_new_site(
                     # Among contacts with the top flight score, pick fewest sites
                     top_score = ranked[0][1]
                     top_contacts = [cid for cid, s in ranked if s == top_score]
-                    assigned = _pick_contact_with_fewest_sites(
-                        top_contacts, contact_total_sites
-                    )
+                    assigned = _pick_contact_with_fewest_sites(top_contacts, contact_total_sites)
                     logger.info(
-                        "P1 assignment (Rule 1.5 – flight score): city=%s, "
+                        "P1 assignment (Rule 1 – flight score): city=%s, "
                         "airports=%s, ranked=%s, assigned=%s (total sites: %d)",
                         city,
                         airports,
@@ -815,14 +781,13 @@ def assign_p1_accountable_for_new_site(
                     )
                     # Build reasoning from all scores
                     score_details = ", ".join(
-                        f"{_contact_name(cid)}: {score:.0f} pts"
-                        for cid, score in ranked
+                        f"{_contact_name(cid)}: {score:.0f} pts" for cid, score in ranked
                     )
                     return P1AssignmentResult(
                         contact_ids=[assigned],
-                        rule="Rule 1.5",
+                        rule="Rule 1",
                         reasoning=(
-                            f"Rule 1.5 (flight scoring): Scored nonstop routes "
+                            f"Rule 1 (flight scoring): Scored nonstop routes "
                             f"to {city} ({', '.join(airports)}). "
                             f"Scores: {score_details}. "
                             f"Assigned to {_contact_name(assigned)} "
@@ -831,13 +796,35 @@ def assign_p1_accountable_for_new_site(
                     )
                 logger.info(
                     "Flight scoring returned no eligible contacts for %s; "
-                    "falling through to Rule 2",
+                    "falling through to Rule 2 (same state)",
                     city,
                 )
         except Exception as e:
-            logger.warning("Flight scoring failed, falling through to Rule 2: %s", e)
+            logger.warning("Flight scoring failed, falling through to Rule 2 (same state): %s", e)
 
-    # Rule 2: New state — find nearest state with a P1 Accountable
+    # Rule 2: P1 Accountable already working the target state
+    if state_upper in state_contacts and state_contacts[state_upper]:
+        candidates = list(state_contacts[state_upper])
+        assigned = _pick_contact_with_fewest_sites(candidates, contact_total_sites)
+        logger.info(
+            "P1 assignment (Rule 2 – same state): state=%s, candidates=%s, assigned=%s "
+            "(total sites: %d)",
+            state_upper,
+            candidates,
+            assigned,
+            contact_total_sites.get(assigned, 0),
+        )
+        return P1AssignmentResult(
+            contact_ids=[assigned],
+            rule="Rule 2",
+            reasoning=(
+                f"Rule 2 (same state): {_contact_name(assigned)} already works in "
+                f"{state_upper} and has the fewest sites "
+                f"({contact_total_sites.get(assigned, 0)} total)"
+            ),
+        )
+
+    # Rule 3: New state — find nearest state with a P1 Accountable
     if state_upper not in US_STATE_CENTROIDS:
         logger.warning(
             "State '%s' not found in US_STATE_CENTROIDS; cannot find nearest",
@@ -874,7 +861,7 @@ def assign_p1_accountable_for_new_site(
     candidates = list(state_contacts[nearest_state])
     assigned = _pick_contact_with_fewest_sites(candidates, contact_total_sites)
     logger.info(
-        "P1 assignment (Rule 2 – nearest state): target=%s, nearest=%s (%.0f km away), "
+        "P1 assignment (Rule 3 – nearest state): target=%s, nearest=%s (%.0f km away), "
         "candidates=%s, assigned=%s (total sites: %d)",
         state_upper,
         nearest_state,
@@ -885,9 +872,9 @@ def assign_p1_accountable_for_new_site(
     )
     return P1AssignmentResult(
         contact_ids=[assigned],
-        rule="Rule 2",
+        rule="Rule 3",
         reasoning=(
-            f"Rule 2 (nearest state): No P1 in {state_upper}. "
+            f"Rule 3 (nearest state): No P1 in {state_upper}. "
             f"Nearest state with a P1 is {nearest_state} "
             f"({nearest_distance:.0f} km away). "
             f"Assigned to {_contact_name(assigned)} "
@@ -1136,10 +1123,7 @@ def search_site_records_by_address(
                 WRIKE_CUSTOM_FIELDS["address"],
                 WRIKE_CUSTOM_FIELDS["address_alt"],
             ]:
-                if (
-                    isinstance(field_value, str)
-                    and address_lower in field_value.lower()
-                ):
+                if isinstance(field_value, str) and address_lower in field_value.lower():
                     matching_records.append(item)
                     break
 
@@ -1192,9 +1176,7 @@ def resolve_permalink_to_id(*, permalink: str, cfg: WrikeConfig | None = None) -
     return record_id
 
 
-def get_site_record_by_id(
-    *, record_id: str, cfg: WrikeConfig | None = None
-) -> dict[str, Any]:
+def get_site_record_by_id(*, record_id: str, cfg: WrikeConfig | None = None) -> dict[str, Any]:
     """
     Get a Site Record by its Wrike ID.
 
@@ -1281,12 +1263,8 @@ def update_site_record(
         if not isinstance(current_owner_ids, list):
             current_owner_ids = []
 
-        owners_to_add = [
-            oid for oid in target_owner_ids if oid not in current_owner_ids
-        ]
-        owners_to_remove = [
-            oid for oid in current_owner_ids if oid not in target_owner_ids
-        ]
+        owners_to_add = [oid for oid in target_owner_ids if oid not in current_owner_ids]
+        owners_to_remove = [oid for oid in current_owner_ids if oid not in target_owner_ids]
 
         project_updates: dict[str, Any] = {}
         if owners_to_add:
@@ -1493,9 +1471,7 @@ def update_site_record_with_location_data(
             sq_ft_value_str = (
                 str(int(sq_ft_value)) if sq_ft_value.is_integer() else str(sq_ft_value)
             )
-            fields.append(
-                {"id": WRIKE_CUSTOM_FIELDS["square_footage"], "value": sq_ft_value_str}
-            )
+            fields.append({"id": WRIKE_CUSTOM_FIELDS["square_footage"], "value": sq_ft_value_str})
             logger.info(
                 "Adding square_footage update to custom fields: input=%s normalized=%s",
                 square_footage,
@@ -1541,9 +1517,7 @@ def update_site_record_with_location_data(
 
     # Vendor Team (LinkToDatabase): always set to the required two IDs
     vendor_team_value = json.dumps(WRIKE_REQUIRED_VENDOR_TEAM_IDS)
-    fields.append(
-        {"id": WRIKE_CUSTOM_FIELDS["vendor_team"], "value": vendor_team_value}
-    )
+    fields.append({"id": WRIKE_CUSTOM_FIELDS["vendor_team"], "value": vendor_team_value})
     logger.info(
         "Adding vendor_team update to custom fields: ids=%s",
         WRIKE_REQUIRED_VENDOR_TEAM_IDS,
@@ -1590,10 +1564,7 @@ def update_site_record_with_location_data(
     # Post the email body as a comment on the record
     if email_body:
         email_body_html = email_body.replace("\n", "<br />")
-        comment_text = (
-            "<b>New Site Email Body</b><br />"
-            f"<p>{email_body_html}</p>"
-        )
+        comment_text = f"<b>New Site Email Body</b><br /><p>{email_body_html}</p>"
         try:
             create_comment(record_id=record_id, text=comment_text, cfg=cfg)
             logger.info("Posted email body as comment on record %s", record_id)

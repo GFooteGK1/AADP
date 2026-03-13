@@ -21,9 +21,10 @@
 The auto-assignment logic exists (`assign_p1_accountable_for_new_site()` in `wrike.py`) and is wired into `server.py`. The `responsibleIds` (Assignee) field is now also set to the same person.
 
 **Rules as coded:**
-- **Rule 1:** If a P1 Accountable already works in the target state → assign the one with fewest total sites
-- **Rule 2:** If new state → find geographically nearest state (haversine distance on state centroids) → assign contact with fewest total sites there
-- **Rule 3:** If no P1 Accountable anywhere → return `[]`
+- **Rule 1:** If city is available and `SERPAPI_API_KEY` is set → score eligible contacts by nonstop flight availability → top score wins (ties broken by fewest total sites). Falls through to Rule 2 if flight data unavailable.
+- **Rule 2:** If a P1 Accountable already works in the target state → assign the one with fewest total sites
+- **Rule 3:** If new state → find geographically nearest state (haversine distance on state centroids) → assign contact with fewest total sites there
+- **Rule 4:** If no P1 Accountable anywhere → return `[]`
 
 **Action needed:** Run a test LOI and verify the Wrike task shows correct Assignee and P1 Accountable custom field values.
 
@@ -58,8 +59,8 @@ The auto-assignment logic exists (`assign_p1_accountable_for_new_site()` in `wri
   - Created `flights.py` — SerpAPI Google Flights client, in-memory cache (7-day TTL), scoring engine, team member configs
   - 6 new MCP tools: `check_nonstop_routes`, `score_location`, `assign_locations`, `resolve_school_location`, `list_team_preferences`, `manage_route_cache`
   - Team rules: Andrea (MSY, requires UA/DL), Robbie (SAT, prefers AA, nonstop-first), Devin (PHX, prefers AA, shortest flight)
-  - P1 assignment Rule 1.5: when city + `SERPAPI_API_KEY` available, flight scoring ranks contacts before haversine fallback
-  - Non-breaking: falls through to existing haversine logic if API key missing or scoring fails
+  - P1 assignment Rule 1: flight scoring is the primary assignment rule — when city + `SERPAPI_API_KEY` available, flight scoring ranks contacts first
+  - Non-breaking: falls through to same-state (Rule 2) then haversine (Rule 3) if API key missing or scoring fails
   - 21 school locations mapped to IATA airport codes
 
 ---
