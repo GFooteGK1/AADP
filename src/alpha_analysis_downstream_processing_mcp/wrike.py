@@ -650,8 +650,9 @@ def assign_p1_accountable_for_new_site(
     Assignment rules (in priority order):
 
     1. If city is provided and SERPAPI_API_KEY is set, score eligible contacts
-       by nonstop flight availability. Among top-scoring contacts, break ties
-       using fewest total sites. Falls through to Rule 2 on failure.
+       by nonstop flight availability. Ties are broken by cascading through:
+       same state → nearest state (haversine) → fewest total sites.
+       Falls through to Rule 2 on failure.
 
     2. If flight data is unavailable and one or more P1 Accountable contacts
        are already working in the target state, assign to the one with the
@@ -766,18 +767,55 @@ def assign_p1_accountable_for_new_site(
                     eligible_ids &= eligible
                 ranked = rank_contacts_by_flight_score(airports, eligible_ids)
                 if ranked:
-                    # Among contacts with the top flight score, pick fewest sites
+                    # Cascading tiebreaker: flight score → same state →
+                    # nearest state (haversine) → fewest sites → contact ID
+                    same_state_cids = state_contacts.get(state_upper, set())
+
+                    def _nearest_state_distance(cid: str) -> float:
+                        """Min haversine distance from any state this contact works in."""
+                        if state_upper not in US_STATE_CENTROIDS:
+                            return float("inf")
+                        t_lat, t_lon = US_STATE_CENTROIDS[state_upper]
+                        best = float("inf")
+                        for st, cids in state_contacts.items():
+                            if cid not in cids or st not in US_STATE_CENTROIDS:
+                                continue
+                            lat, lon = US_STATE_CENTROIDS[st]
+                            best = min(best, _haversine_distance(t_lat, t_lon, lat, lon))
+                        return best
+
+                    assigned = min(
+                        [cid for cid, _ in ranked],
+                        key=lambda cid: (
+                            -dict(ranked)[cid],  # highest flight score first
+                            0 if cid in same_state_cids else 1,  # same state preferred
+                            _nearest_state_distance(cid),  # nearest state
+                            contact_total_sites.get(cid, 0),  # fewest sites
+                            cid,  # deterministic
+                        ),
+                    )
+                    # Determine which tiebreaker decided
                     top_score = ranked[0][1]
                     top_contacts = [cid for cid, s in ranked if s == top_score]
-                    assigned = _pick_contact_with_fewest_sites(top_contacts, contact_total_sites)
+                    if len(top_contacts) == 1:
+                        tiebreaker = "highest flight score"
+                    elif assigned in same_state_cids:
+                        tiebreaker = "same-state tiebreaker"
+                    elif _nearest_state_distance(assigned) < float("inf"):
+                        tiebreaker = "nearest-state tiebreaker"
+                    else:
+                        tiebreaker = "fewest-sites tiebreaker"
+
                     logger.info(
                         "P1 assignment (Rule 1 – flight score): city=%s, "
-                        "airports=%s, ranked=%s, assigned=%s (total sites: %d)",
+                        "airports=%s, ranked=%s, assigned=%s (total sites: %d, "
+                        "tiebreaker: %s)",
                         city,
                         airports,
                         ranked,
                         assigned,
                         contact_total_sites.get(assigned, 0),
+                        tiebreaker,
                     )
                     # Build reasoning from all scores
                     score_details = ", ".join(
@@ -791,7 +829,8 @@ def assign_p1_accountable_for_new_site(
                             f"to {city} ({', '.join(airports)}). "
                             f"Scores: {score_details}. "
                             f"Assigned to {_contact_name(assigned)} "
-                            f"({contact_total_sites.get(assigned, 0)} total sites)"
+                            f"({contact_total_sites.get(assigned, 0)} total sites, "
+                            f"{tiebreaker})"
                         ),
                     )
                 logger.info(
