@@ -62,6 +62,7 @@ warn_unreachable = true
 [dependency-groups]
 dev = [
     "mypy>=1.18.2",
+    "pytest>=8.0",
     "ruff>=0.13.1",
     "types-boto3>=1.42.28",
     "types-requests>=2.32.4.20260107",

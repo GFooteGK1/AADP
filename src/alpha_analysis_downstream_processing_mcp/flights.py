@@ -61,6 +61,14 @@ TEAM_MEMBERS: dict[str, TeamMember] = {
         preferred_airlines=frozenset({"AA"}),
         prioritize_shortest=True,
     ),
+    "brandon": TeamMember(
+        name="Brandon Gee",
+        home_airport="DTW",
+        wrike_contact_id="KUAWKIGO",
+        required_airlines=frozenset(),
+        preferred_airlines=frozenset({"DL"}),
+        prioritize_shortest=False,
+    ),
 }
 
 # Reverse lookup: Wrike contact ID -> member key

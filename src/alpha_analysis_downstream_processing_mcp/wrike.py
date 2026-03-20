@@ -121,10 +121,10 @@ WRIKE_REQUIRED_VENDOR_TEAM_IDS: list[str] = ["RE5174381", "RE5174384"]
 
 # P1 Accountable contact pools by school type
 # Growth (250) / Flagship (1000): Thomas Barrow, Israe Zizaoui
-# Microschool (micro): Devin Bates, Robbie Forrest, Andrea Ewalefo
+# Microschool (micro): Devin Bates, Robbie Forrest, Andrea Ewalefo, Brandon Gee
 # JC Fisher: excluded from all assignments (returns [])
 _P1_GROWTH_FLAGSHIP_CONTACTS: set[str] = {"KUAWCQTS", "KUAWVGG4"}
-_P1_MICROSCHOOL_CONTACTS: set[str] = {"KUAWS3KA", "KUAUVTLM", "KUAWDEOX"}
+_P1_MICROSCHOOL_CONTACTS: set[str] = {"KUAWS3KA", "KUAUVTLM", "KUAWDEOX", "KUAWKIGO"}
 
 
 @dataclass(frozen=True)
@@ -699,6 +699,18 @@ def assign_p1_accountable_for_new_site(
             contact_ids=[],
             rule="Excluded",
             reasoning=f"School type '{school_type}' is excluded from P1 assignment",
+        )
+
+    # Growth/flagship sites always get both Thomas Barrow and Israe Zizaoui
+    if school_type in ("250", "1000"):
+        ids = sorted(_P1_GROWTH_FLAGSHIP_CONTACTS)
+        return P1AssignmentResult(
+            contact_ids=ids,
+            rule="Auto-assign",
+            reasoning=(
+                "Growth/flagship sites are always assigned to both "
+                "Thomas Barrow and Israe Zizaoui"
+            ),
         )
 
     all_records = get_all_site_records(cfg=cfg)
