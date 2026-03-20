@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from datetime import datetime
 from typing import Any
@@ -92,11 +93,7 @@ SITE_DRIVE_SUBFOLDERS: list[str] = [
 ]
 
 
-GOOGLE_CHAT_WEBHOOK_URL = (
-    "https://chat.googleapis.com/v1/spaces/AAQAY6uu1x8/messages"
-    "?key=REDACTED_GOOGLE_API_KEY"
-    "&token=REDACTED_WEBHOOK_TOKEN"
-)
+GOOGLE_CHAT_WEBHOOK_URL = os.getenv("GOOGLE_CHAT_WEBHOOK_URL", "")
 
 
 def _send_p1_assignment_chat_notification(
@@ -106,6 +103,9 @@ def _send_p1_assignment_chat_notification(
     wrike_permalink: str,
 ) -> None:
     """Send P1 assignment reasoning to Google Chat webhook. Non-blocking."""
+    if not GOOGLE_CHAT_WEBHOOK_URL:
+        logger.warning("GOOGLE_CHAT_WEBHOOK_URL not set; skipping chat notification")
+        return
     try:
         text = (
             f"*P1 Accountable Assigned* for {full_address}\n\n"
